@@ -1,5 +1,5 @@
 import { EthereumWalletGenerator, type WalletInfo, type TransferResult } from '../functions/walletCreation.js';
-import { GraphProtocolService, type WalletData, type Transaction } from '../graph/index.js';
+import { GraphProtocolService, type WalletData, type Transaction } from '../graph/market/walletmonitor.js';
 import { WalletStorageService } from '../functions/walletStorage.js';
 
 export interface PhysicalWallet {
