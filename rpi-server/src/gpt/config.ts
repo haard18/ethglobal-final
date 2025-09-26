@@ -1,6 +1,9 @@
 import dotenv from 'dotenv';
+import path from 'path';
 
-// Load environment variables
+// Load environment variables - try multiple possible locations
+dotenv.config({ path: path.resolve(process.cwd(), '.env') });
+dotenv.config({ path: path.resolve(process.cwd(), '..', '.env') });
 dotenv.config();
 
 export const gptConfig = {

@@ -2,12 +2,15 @@ import express, { type Request, type Response } from "express";
 import { gptService, type ActionableResponse } from "./gpt/service.js";
 import { PhysicalWalletService } from "./services/physicalWallet.js";
 import { speakText } from "./output/speak.js";
+import { GraphProtocolService, type TokenBalance, type WalletData, WalletMonitorService, type WalletMonitor } from "./graph/market/walletmonitor.ts";
 
 const app = express();
 const port = 3000;
 
-// Initialize Physical Wallet Service
+// Initialize services
 const physicalWalletService = new PhysicalWalletService();
+const graphProtocolService = new GraphProtocolService();
+const walletMonitorService = new WalletMonitorService();
 
 // Middleware to parse JSON
 app.use(express.json());
@@ -400,6 +403,726 @@ app.get("/wallets", (req: Request, res: Response) => {
         res.status(500).json({
             success: false,
             error: "Failed to get wallets",
+            message: error instanceof Error ? error.message : "Unknown error"
+        });
+    }
+});
+
+// Get specific token/coin data for a wallet
+app.get("/wallet/:address/token/:tokenSymbol", async (req: Request, res: Response) => {
+    try {
+        const { address, tokenSymbol } = req.params;
+        const { networkId } = req.query;
+        
+        if (!address || !tokenSymbol) {
+            return res.status(400).json({
+                success: false,
+                error: "Bad Request",
+                message: "Wallet address and token symbol are required"
+            });
+        }
+        
+        // Get wallet data including all token balances
+        const walletData = await graphProtocolService.getWalletData(
+            address, 
+            (networkId as string) || 'mainnet'
+        );
+        
+        // Filter for the specific token/coin
+        const tokenBalance = walletData.tokenBalances.find(token => 
+            token.symbol.toLowerCase() === tokenSymbol.toLowerCase() ||
+            token.name.toLowerCase() === tokenSymbol.toLowerCase() ||
+            token.contract.toLowerCase() === tokenSymbol.toLowerCase()
+        );
+        
+        if (!tokenBalance) {
+            return res.status(404).json({
+                success: false,
+                error: "Token not found",
+                message: `Token '${tokenSymbol}' not found in wallet ${address}`,
+                availableTokens: walletData.tokenBalances.map(token => ({
+                    symbol: token.symbol,
+                    name: token.name,
+                    contract: token.contract
+                })),
+                timestamp: new Date().toISOString()
+            });
+        }
+        
+        // Calculate percentage of total portfolio value
+        const portfolioPercentage = walletData.totalValueUSD > 0 
+            ? ((tokenBalance.value / walletData.totalValueUSD) * 100).toFixed(2)
+            : "0.00";
+        
+        res.json({
+            success: true,
+            walletAddress: address,
+            tokenInfo: {
+                symbol: tokenBalance.symbol,
+                name: tokenBalance.name,
+                contract: tokenBalance.contract,
+                balance: tokenBalance.amount,
+                decimals: tokenBalance.decimals,
+                valueUSD: tokenBalance.value,
+                portfolioPercentage: `${portfolioPercentage}%`,
+                lastUpdate: tokenBalance.last_balance_update,
+                blockNumber: tokenBalance.block_num,
+                networkId: tokenBalance.network_id
+            },
+            portfolioSummary: {
+                totalValueUSD: walletData.totalValueUSD,
+                totalTokens: walletData.tokenBalances.length
+            },
+            timestamp: new Date().toISOString()
+        });
+        
+    } catch (error) {
+        console.error("Error getting token data:", error);
+        res.status(500).json({
+            success: false,
+            error: "Failed to get token data",
+            message: error instanceof Error ? error.message : "Unknown error"
+        });
+    }
+});
+
+// Get all tokens for a wallet with filtering options
+app.get("/wallet/:address/tokens", async (req: Request, res: Response) => {
+    try {
+        const { address } = req.params;
+        const { networkId, minValue, symbol } = req.query;
+        
+        if (!address) {
+            return res.status(400).json({
+                success: false,
+                error: "Bad Request",
+                message: "Wallet address is required"
+            });
+        }
+        
+        // Get wallet data including all token balances
+        const walletData = await graphProtocolService.getWalletData(
+            address, 
+            (networkId as string) || 'mainnet'
+        );
+        
+        let filteredTokens = walletData.tokenBalances;
+        
+        // Apply filters
+        if (minValue) {
+            const minVal = parseFloat(minValue as string);
+            filteredTokens = filteredTokens.filter(token => token.value >= minVal);
+        }
+        
+        if (symbol) {
+            const searchSymbol = (symbol as string).toLowerCase();
+            filteredTokens = filteredTokens.filter(token => 
+                token.symbol.toLowerCase().includes(searchSymbol) ||
+                token.name.toLowerCase().includes(searchSymbol)
+            );
+        }
+        
+        // Sort by value (descending)
+        filteredTokens.sort((a, b) => b.value - a.value);
+        
+        // Calculate portfolio percentages
+        const tokensWithPercentage = filteredTokens.map(token => ({
+            symbol: token.symbol,
+            name: token.name,
+            contract: token.contract,
+            balance: token.amount,
+            decimals: token.decimals,
+            valueUSD: token.value,
+            portfolioPercentage: walletData.totalValueUSD > 0 
+                ? `${((token.value / walletData.totalValueUSD) * 100).toFixed(2)}%`
+                : "0.00%",
+            lastUpdate: token.last_balance_update,
+            blockNumber: token.block_num,
+            networkId: token.network_id
+        }));
+        
+        res.json({
+            success: true,
+            walletAddress: address,
+            filters: {
+                networkId: (networkId as string) || 'mainnet',
+                minValue: minValue ? parseFloat(minValue as string) : undefined,
+                symbolFilter: symbol as string
+            },
+            tokens: tokensWithPercentage,
+            summary: {
+                totalTokens: filteredTokens.length,
+                totalValueUSD: filteredTokens.reduce((sum, token) => sum + token.value, 0),
+                portfolioTotalValueUSD: walletData.totalValueUSD
+            },
+            timestamp: new Date().toISOString()
+        });
+        
+    } catch (error) {
+        console.error("Error getting wallet tokens:", error);
+        res.status(500).json({
+            success: false,
+            error: "Failed to get wallet tokens",
+            message: error instanceof Error ? error.message : "Unknown error"
+        });
+    }
+});
+
+// ===== COMPREHENSIVE WALLET MONITOR ENDPOINTS =====
+
+// Initialize wallet monitoring service
+app.post("/monitor/initialize", async (req: Request, res: Response) => {
+    try {
+        await walletMonitorService.initialize();
+        res.json({
+            success: true,
+            message: "Wallet monitoring service initialized successfully",
+            timestamp: new Date().toISOString()
+        });
+    } catch (error) {
+        console.error("Error initializing wallet monitor service:", error);
+        res.status(500).json({
+            success: false,
+            error: "Failed to initialize wallet monitor service",
+            message: error instanceof Error ? error.message : "Unknown error"
+        });
+    }
+});
+
+// Add wallet to monitoring service
+app.post("/monitor/wallet/add", async (req: Request, res: Response) => {
+    try {
+        const { address, publicKey, privateKey, mnemonic } = req.body;
+        
+        if (!address) {
+            return res.status(400).json({
+                success: false,
+                error: "Bad Request",
+                message: "Wallet address is required"
+            });
+        }
+
+        const walletInfo = {
+            address,
+            publicKey: publicKey || "",
+            privateKey: privateKey || "",
+            mnemonic: mnemonic || ""
+        };
+
+        const walletMonitor = await walletMonitorService.addWalletToMonitor(walletInfo);
+        
+        res.json({
+            success: true,
+            message: `Wallet ${address} added to monitoring service`,
+            walletMonitor: {
+                address: walletMonitor.walletInfo.address,
+                isMonitoring: walletMonitor.isMonitoring,
+                lastUpdated: walletMonitor.lastUpdated,
+                walletData: walletMonitor.walletData
+            },
+            timestamp: new Date().toISOString()
+        });
+    } catch (error) {
+        console.error("Error adding wallet to monitor:", error);
+        res.status(500).json({
+            success: false,
+            error: "Failed to add wallet to monitor",
+            message: error instanceof Error ? error.message : "Unknown error"
+        });
+    }
+});
+
+// Start comprehensive wallet monitoring
+app.post("/monitor/wallet/:address/start", async (req: Request, res: Response) => {
+    try {
+        const { address } = req.params;
+        const { intervalMs } = req.body;
+        
+        if (!address) {
+            return res.status(400).json({
+                success: false,
+                error: "Bad Request",
+                message: "Wallet address is required"
+            });
+        }
+
+        await walletMonitorService.startMonitoring(address, intervalMs || 30000);
+        
+        res.json({
+            success: true,
+            message: `Started comprehensive monitoring for wallet ${address}`,
+            address,
+            intervalMs: intervalMs || 30000,
+            timestamp: new Date().toISOString()
+        });
+    } catch (error) {
+        console.error("Error starting wallet monitoring:", error);
+        res.status(500).json({
+            success: false,
+            error: "Failed to start wallet monitoring",
+            message: error instanceof Error ? error.message : "Unknown error"
+        });
+    }
+});
+
+// Stop wallet monitoring
+app.post("/monitor/wallet/:address/stop", (req: Request, res: Response) => {
+    try {
+        const { address } = req.params;
+        
+        if (!address) {
+            return res.status(400).json({
+                success: false,
+                error: "Bad Request",
+                message: "Wallet address is required"
+            });
+        }
+
+        walletMonitorService.stopMonitoring(address);
+        
+        res.json({
+            success: true,
+            message: `Stopped monitoring wallet ${address}`,
+            address,
+            timestamp: new Date().toISOString()
+        });
+    } catch (error) {
+        console.error("Error stopping wallet monitoring:", error);
+        res.status(500).json({
+            success: false,
+            error: "Failed to stop wallet monitoring",
+            message: error instanceof Error ? error.message : "Unknown error"
+        });
+    }
+});
+
+// Get comprehensive wallet monitor data
+app.get("/monitor/wallet/:address", (req: Request, res: Response) => {
+    try {
+        const { address } = req.params;
+        
+        if (!address) {
+            return res.status(400).json({
+                success: false,
+                error: "Bad Request",
+                message: "Wallet address is required"
+            });
+        }
+
+        const walletMonitor = walletMonitorService.getWalletMonitor(address);
+        
+        if (!walletMonitor) {
+            return res.status(404).json({
+                success: false,
+                error: "Not Found",
+                message: `Wallet ${address} not found in monitoring service`
+            });
+        }
+
+        res.json({
+            success: true,
+            walletMonitor: {
+                address: walletMonitor.walletInfo.address,
+                isMonitoring: walletMonitor.isMonitoring,
+                lastUpdated: walletMonitor.lastUpdated,
+                walletData: walletMonitor.walletData
+            },
+            timestamp: new Date().toISOString()
+        });
+    } catch (error) {
+        console.error("Error getting wallet monitor:", error);
+        res.status(500).json({
+            success: false,
+            error: "Failed to get wallet monitor",
+            message: error instanceof Error ? error.message : "Unknown error"
+        });
+    }
+});
+
+// Get all monitored wallets
+app.get("/monitor/wallets", (req: Request, res: Response) => {
+    try {
+        const monitoredWallets = walletMonitorService.getAllMonitoredWallets();
+        
+        res.json({
+            success: true,
+            monitoredWallets: monitoredWallets.map(wallet => ({
+                address: wallet.walletInfo.address,
+                isMonitoring: wallet.isMonitoring,
+                lastUpdated: wallet.lastUpdated,
+                tokenCount: wallet.walletData?.tokenBalances?.length || 0,
+                totalValueUSD: wallet.walletData?.totalValueUSD || 0,
+                transactionCount: wallet.walletData?.transactionCount || 0
+            })),
+            count: monitoredWallets.length,
+            timestamp: new Date().toISOString()
+        });
+    } catch (error) {
+        console.error("Error getting monitored wallets:", error);
+        res.status(500).json({
+            success: false,
+            error: "Failed to get monitored wallets",
+            message: error instanceof Error ? error.message : "Unknown error"
+        });
+    }
+});
+
+// Update wallet data manually
+app.post("/monitor/wallet/:address/update", async (req: Request, res: Response) => {
+    try {
+        const { address } = req.params;
+        
+        if (!address) {
+            return res.status(400).json({
+                success: false,
+                error: "Bad Request",
+                message: "Wallet address is required"
+            });
+        }
+
+        const updatedData = await walletMonitorService.updateWalletData(address);
+        
+        res.json({
+            success: true,
+            message: `Wallet data updated for ${address}`,
+            address,
+            walletData: updatedData,
+            timestamp: new Date().toISOString()
+        });
+    } catch (error) {
+        console.error("Error updating wallet data:", error);
+        res.status(500).json({
+            success: false,
+            error: "Failed to update wallet data",
+            message: error instanceof Error ? error.message : "Unknown error"
+        });
+    }
+});
+
+// Get wallet transactions from monitoring service
+app.get("/monitor/wallet/:address/transactions", async (req: Request, res: Response) => {
+    try {
+        const { address } = req.params;
+        const limit = parseInt(req.query.limit as string) || 10;
+        
+        if (!address) {
+            return res.status(400).json({
+                success: false,
+                error: "Bad Request",
+                message: "Wallet address is required"
+            });
+        }
+
+        const transactions = await walletMonitorService.getWalletTransactions(address, limit);
+        
+        res.json({
+            success: true,
+            address,
+            transactions: transactions.map(tx => ({
+                id: tx.transaction_id,
+                timestamp: new Date(tx.timestamp * 1000).toISOString(),
+                datetime: tx.datetime,
+                from: tx.from,
+                to: tx.to,
+                value: tx.value,
+                symbol: tx.symbol,
+                decimals: tx.decimals,
+                contract: tx.contract,
+                blockNumber: tx.block_num
+            })),
+            count: transactions.length,
+            timestamp: new Date().toISOString()
+        });
+    } catch (error) {
+        console.error("Error getting wallet transactions:", error);
+        res.status(500).json({
+            success: false,
+            error: "Failed to get wallet transactions",
+            message: error instanceof Error ? error.message : "Unknown error"
+        });
+    }
+});
+
+// Remove wallet from monitoring
+app.delete("/monitor/wallet/:address", (req: Request, res: Response) => {
+    try {
+        const { address } = req.params;
+        
+        if (!address) {
+            return res.status(400).json({
+                success: false,
+                error: "Bad Request",
+                message: "Wallet address is required"
+            });
+        }
+
+        const removed = walletMonitorService.removeWallet(address);
+        
+        if (removed) {
+            res.json({
+                success: true,
+                message: `Wallet ${address} removed from monitoring service`,
+                address,
+                timestamp: new Date().toISOString()
+            });
+        } else {
+            res.status(404).json({
+                success: false,
+                error: "Not Found",
+                message: `Wallet ${address} not found in monitoring service`
+            });
+        }
+    } catch (error) {
+        console.error("Error removing wallet from monitoring:", error);
+        res.status(500).json({
+            success: false,
+            error: "Failed to remove wallet from monitoring",
+            message: error instanceof Error ? error.message : "Unknown error"
+        });
+    }
+});
+
+// ===== MARKET VALUE ENDPOINTS =====
+
+// Get specific coin/token market data for a wallet
+app.get("/market/wallet/:address/coin/:coinSymbol", async (req: Request, res: Response) => {
+    try {
+        const { address, coinSymbol } = req.params;
+        const { networkId } = req.query;
+        
+        if (!address || !coinSymbol) {
+            return res.status(400).json({
+                success: false,
+                error: "Bad Request",
+                message: "Wallet address and coin symbol are required"
+            });
+        }
+        
+        // Get wallet data including all token balances
+        const walletData = await graphProtocolService.getWalletData(
+            address, 
+            (networkId as string) || 'mainnet'
+        );
+        
+        // Filter for the specific coin/token (more comprehensive matching)
+        const coinBalance = walletData.tokenBalances.find(token => 
+            token.symbol.toLowerCase() === coinSymbol.toLowerCase() ||
+            token.name.toLowerCase().includes(coinSymbol.toLowerCase()) ||
+            token.contract.toLowerCase() === coinSymbol.toLowerCase()
+        );
+        
+        if (!coinBalance) {
+            return res.status(404).json({
+                success: false,
+                error: "Coin not found",
+                message: `Coin '${coinSymbol}' not found in wallet ${address}`,
+                availableCoins: walletData.tokenBalances.map(token => ({
+                    symbol: token.symbol,
+                    name: token.name,
+                    contract: token.contract,
+                    value: token.value
+                })),
+                timestamp: new Date().toISOString()
+            });
+        }
+        
+        // Calculate additional market metrics
+        const portfolioPercentage = walletData.totalValueUSD > 0 
+            ? ((coinBalance.value / walletData.totalValueUSD) * 100).toFixed(2)
+            : "0.00";
+            
+        const marketData = {
+            coinInfo: {
+                symbol: coinBalance.symbol,
+                name: coinBalance.name,
+                contract: coinBalance.contract,
+                networkId: coinBalance.network_id
+            },
+            balance: {
+                raw: coinBalance.amount,
+                formatted: `${coinBalance.amount} ${coinBalance.symbol}`,
+                decimals: coinBalance.decimals
+            },
+            marketValue: {
+                usd: coinBalance.value,
+                portfolioPercentage: `${portfolioPercentage}%`,
+                lastUpdate: coinBalance.last_balance_update,
+                blockNumber: coinBalance.block_num
+            },
+            walletContext: {
+                walletAddress: address,
+                totalPortfolioValueUSD: walletData.totalValueUSD,
+                totalTokensInWallet: walletData.tokenBalances.length,
+                rank: walletData.tokenBalances
+                    .sort((a, b) => b.value - a.value)
+                    .findIndex(token => token.symbol === coinBalance.symbol) + 1
+            }
+        };
+        
+        res.json({
+            success: true,
+            coinSymbol: coinSymbol.toUpperCase(),
+            marketData,
+            timestamp: new Date().toISOString()
+        });
+        
+    } catch (error) {
+        console.error("Error getting coin market data:", error);
+        res.status(500).json({
+            success: false,
+            error: "Failed to get coin market data",
+            message: error instanceof Error ? error.message : "Unknown error"
+        });
+    }
+});
+
+// Get top coins by value in a wallet
+app.get("/market/wallet/:address/top-coins", async (req: Request, res: Response) => {
+    try {
+        const { address } = req.params;
+        const { limit, networkId, minValue } = req.query;
+        
+        if (!address) {
+            return res.status(400).json({
+                success: false,
+                error: "Bad Request",
+                message: "Wallet address is required"
+            });
+        }
+        
+        const walletData = await graphProtocolService.getWalletData(
+            address, 
+            (networkId as string) || 'mainnet'
+        );
+        
+        let filteredTokens = walletData.tokenBalances;
+        
+        // Apply minimum value filter
+        if (minValue) {
+            const minVal = parseFloat(minValue as string);
+            filteredTokens = filteredTokens.filter(token => token.value >= minVal);
+        }
+        
+        // Sort by value (descending) and limit
+        filteredTokens.sort((a, b) => b.value - a.value);
+        const topLimit = parseInt(limit as string) || 10;
+        const topCoins = filteredTokens.slice(0, topLimit);
+        
+        // Calculate additional metrics for each coin
+        const enrichedCoins = topCoins.map((coin, index) => ({
+            rank: index + 1,
+            coinInfo: {
+                symbol: coin.symbol,
+                name: coin.name,
+                contract: coin.contract
+            },
+            balance: {
+                raw: coin.amount,
+                formatted: `${coin.amount} ${coin.symbol}`,
+                decimals: coin.decimals
+            },
+            marketValue: {
+                usd: coin.value,
+                portfolioPercentage: `${((coin.value / walletData.totalValueUSD) * 100).toFixed(2)}%`,
+                lastUpdate: coin.last_balance_update,
+                blockNumber: coin.block_num
+            }
+        }));
+        
+        res.json({
+            success: true,
+            walletAddress: address,
+            filters: {
+                networkId: (networkId as string) || 'mainnet',
+                limit: topLimit,
+                minValue: minValue ? parseFloat(minValue as string) : undefined
+            },
+            topCoins: enrichedCoins,
+            summary: {
+                totalCoinsShown: enrichedCoins.length,
+                totalValueShown: enrichedCoins.reduce((sum, coin) => sum + coin.marketValue.usd, 0),
+                totalPortfolioValue: walletData.totalValueUSD,
+                totalCoinsInWallet: walletData.tokenBalances.length
+            },
+            timestamp: new Date().toISOString()
+        });
+        
+    } catch (error) {
+        console.error("Error getting top coins:", error);
+        res.status(500).json({
+            success: false,
+            error: "Failed to get top coins",
+            message: error instanceof Error ? error.message : "Unknown error"
+        });
+    }
+});
+
+// Get market summary for a wallet
+app.get("/market/wallet/:address/summary", async (req: Request, res: Response) => {
+    try {
+        const { address } = req.params;
+        const { networkId } = req.query;
+        
+        if (!address) {
+            return res.status(400).json({
+                success: false,
+                error: "Bad Request",
+                message: "Wallet address is required"
+            });
+        }
+        
+        const walletData = await graphProtocolService.getWalletData(
+            address, 
+            (networkId as string) || 'mainnet'
+        );
+        
+        // Calculate market metrics
+        const sortedTokens = walletData.tokenBalances.sort((a, b) => b.value - a.value);
+        const topToken = sortedTokens[0];
+        const tokensWithValue = sortedTokens.filter(token => token.value > 0);
+        const tokensWithoutValue = sortedTokens.filter(token => token.value === 0);
+        
+        // Calculate diversification metrics
+        const totalValue = walletData.totalValueUSD;
+        const concentration = topToken && totalValue > 0 ? (topToken.value / totalValue) * 100 : 0;
+        
+        const marketSummary = {
+            portfolio: {
+                totalValueUSD: totalValue,
+                totalTokens: walletData.tokenBalances.length,
+                tokensWithValue: tokensWithValue.length,
+                tokensWithoutValue: tokensWithoutValue.length,
+                lastTransactionCount: walletData.transactionCount
+            },
+            topHolding: topToken ? {
+                symbol: topToken.symbol,
+                name: topToken.name,
+                value: topToken.value,
+                percentage: `${concentration.toFixed(2)}%`
+            } : null,
+            diversification: {
+                concentration: `${concentration.toFixed(2)}%`,
+                risk: concentration > 50 ? "High" : concentration > 25 ? "Medium" : "Low"
+            },
+            breakdown: tokensWithValue.slice(0, 5).map(token => ({
+                symbol: token.symbol,
+                value: token.value,
+                percentage: `${((token.value / totalValue) * 100).toFixed(2)}%`
+            }))
+        };
+        
+        res.json({
+            success: true,
+            walletAddress: address,
+            marketSummary,
+            timestamp: new Date().toISOString()
+        });
+        
+    } catch (error) {
+        console.error("Error getting market summary:", error);
+        res.status(500).json({
+            success: false,
+            error: "Failed to get market summary",
             message: error instanceof Error ? error.message : "Unknown error"
         });
     }
