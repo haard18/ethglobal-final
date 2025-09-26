@@ -106,6 +106,94 @@ app.post("/wallet/import", async (req: Request, res: Response) => {
     }
 });
 
+// Check if wallet exists in storage
+app.get("/wallet/storage/check", async (req: Request, res: Response) => {
+    try {
+        const hasWallet = physicalWalletService.hasStoredWallet();
+        const storagePath = physicalWalletService.getWalletStoragePath();
+        
+        if (hasWallet) {
+            // Try to load wallet info (address only for security)
+            const walletAddress = physicalWalletService.getStoredWalletAddress() || "Unknown";
+            res.json({
+                success: true,
+                hasWallet: true,
+                walletAddress,
+                storagePath,
+                message: "Wallet found in storage",
+                timestamp: new Date().toISOString()
+            });
+        } else {
+            res.json({
+                success: true,
+                hasWallet: false,
+                storagePath,
+                message: "No wallet found in storage",
+                timestamp: new Date().toISOString()
+            });
+        }
+    } catch (error) {
+        console.error("Error checking wallet storage:", error);
+        res.status(500).json({
+            success: false,
+            error: "Failed to check wallet storage",
+            message: error instanceof Error ? error.message : "Unknown error"
+        });
+    }
+});
+
+// Transfer ETH endpoint
+interface TransferRequest {
+    toAddress: string;
+    amount: string;
+    fromAddress?: string; // Optional, will use main wallet if not provided
+}
+
+app.post("/wallet/transfer", async (req: Request, res: Response) => {
+    try {
+        const { toAddress, amount, fromAddress }: TransferRequest = req.body;
+        
+        if (!toAddress || !amount) {
+            return res.status(400).json({
+                success: false,
+                error: "Bad Request",
+                message: "toAddress and amount are required"
+            });
+        }
+        
+        let transferResult;
+        if (fromAddress) {
+            transferResult = await physicalWalletService.transferETH(fromAddress, toAddress, amount);
+        } else {
+            // Use main wallet from storage
+            transferResult = await physicalWalletService.transferFromMainWallet(toAddress, amount);
+        }
+        
+        if (transferResult.success) {
+            res.json({
+                success: true,
+                message: "Transfer completed successfully",
+                transfer: transferResult,
+                timestamp: new Date().toISOString()
+            });
+        } else {
+            res.status(400).json({
+                success: false,
+                error: "Transfer failed",
+                message: transferResult.error,
+                timestamp: new Date().toISOString()
+            });
+        }
+    } catch (error) {
+        console.error("Error processing transfer:", error);
+        res.status(500).json({
+            success: false,
+            error: "Failed to process transfer",
+            message: error instanceof Error ? error.message : "Unknown error"
+        });
+    }
+});
+
 // Get wallet data
 app.get("/wallet/:address", async (req: Request, res: Response) => {
     try {
@@ -370,8 +458,32 @@ app.post("/", async (req: Request, res: Response) => {
                 
                 case 'GET_WALLET_INFO':
                     const wallets = physicalWalletService.getAllWallets();
-                    const walletSummary = `You have ${wallets.length} wallet${wallets.length !== 1 ? 's' : ''} in your portfolio.`;
-                    speakText(walletSummary);
+                    
+                    let walletSummary: string;
+                    let spokenResponse: string;
+                    
+                    if (wallets.length === 0) {
+                        walletSummary = "You don't have any wallets in your portfolio yet.";
+                        spokenResponse = "You don't have any wallets in your portfolio yet. Would you like me to create one for you?";
+                    } else if (wallets.length === 1) {
+                        const wallet = wallets[0];
+                        if (wallet && wallet.walletInfo) {
+                            const address = wallet.walletInfo.address;
+                            walletSummary = `You have 1 wallet in your portfolio. Your wallet address is ${address}`;
+                            
+                            // Format address for speaking - break it into chunks for easier listening
+                            const formattedAddress = address.slice(0, 6) + "..." + address.slice(-6);
+                            spokenResponse = `You have one wallet in your portfolio. Your wallet address is ${formattedAddress}. The full address is being displayed for you.`;
+                        } else {
+                            walletSummary = "You have 1 wallet, but there's an issue accessing its details.";
+                            spokenResponse = "You have one wallet, but I'm having trouble accessing its details right now.";
+                        }
+                    } else {
+                        walletSummary = `You have ${wallets.length} wallets in your portfolio.`;
+                        spokenResponse = `You have ${wallets.length} wallets in your portfolio. Let me know which one you'd like details for.`;
+                    }
+                    
+                    speakText(spokenResponse);
                     
                     return res.json({
                         success: true,
@@ -386,6 +498,58 @@ app.post("/", async (req: Request, res: Response) => {
                         })),
                         timestamp: new Date().toISOString()
                     });
+                
+                case 'TRANSFER_ETH':
+                    try {
+                        // Extract transfer parameters from intent analysis
+                        const { amount, toAddress } = intentAnalysis.parameters || {};
+                        
+                        if (!amount || !toAddress) {
+                            const errorMessage = "I need both an amount and a recipient address or ENS name to make the transfer.";
+                            speakText(errorMessage);
+                            return res.status(400).json({
+                                success: false,
+                                error: "Missing transfer parameters",
+                                message: errorMessage,
+                                timestamp: new Date().toISOString()
+                            });
+                        }
+                        
+                        // Perform transfer using main wallet
+                        const transferResult = await physicalWalletService.transferFromMainWallet(toAddress, amount);
+                        
+                        if (transferResult.success) {
+                            const successMessage = `Successfully transferred ${amount} ETH to ${toAddress}. Transaction hash: ${transferResult.transactionHash}`;
+                            speakText(`Transfer completed! Sent ${amount} ETH successfully.`);
+                            
+                            return res.json({
+                                success: true,
+                                user_input: text,
+                                action_performed: 'TRANSFER_ETH',
+                                pluto_response: successMessage,
+                                transfer: transferResult,
+                                timestamp: new Date().toISOString()
+                            });
+                        } else {
+                            const errorMessage = `Transfer failed: ${transferResult.error}`;
+                            speakText("Transfer failed. Please check your balance and try again.");
+                            
+                            return res.status(400).json({
+                                success: false,
+                                error: "Transfer failed",
+                                message: errorMessage,
+                                timestamp: new Date().toISOString()
+                            });
+                        }
+                    } catch (error) {
+                        const errorMessage = "Had trouble processing your transfer. Please try again.";
+                        speakText(errorMessage);
+                        return res.status(500).json({
+                            success: false,
+                            error: "Failed to process transfer",
+                            message: error instanceof Error ? error.message : "Unknown error"
+                        });
+                    }
                 
                 default:
                     // For other actions, provide guidance

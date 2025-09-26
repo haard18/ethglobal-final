@@ -3,7 +3,7 @@ import { gptConfig, validateConfig } from './config.js';
 
 export interface ActionableResponse {
   isAction: boolean;
-  action?: 'CREATE_WALLET' | 'IMPORT_WALLET_PRIVATE_KEY' | 'IMPORT_WALLET_MNEMONIC' | 'GET_WALLET_INFO' | 'MONITOR_WALLET' | 'GET_WALLET_TRANSACTIONS';
+  action?: 'CREATE_WALLET' | 'IMPORT_WALLET_PRIVATE_KEY' | 'IMPORT_WALLET_MNEMONIC' | 'GET_WALLET_INFO' | 'MONITOR_WALLET' | 'GET_WALLET_TRANSACTIONS' | 'TRANSFER_ETH';
   parameters?: any;
   textResponse?: string;
 }
@@ -35,13 +35,20 @@ export class GPTService {
             content: `You are an intelligent function dispatcher for a blockchain wallet system. Analyze the user's message and determine if they want to perform a specific wallet action.
 
 Available functions:
-- CREATE_WALLET: Generate a new Ethereum wallet
+- CREATE_WALLET: Generate a new Ethereum wallet (will check storage first)
 - IMPORT_WALLET_PRIVATE_KEY: Import wallet using private key 
 - IMPORT_WALLET_MNEMONIC: Import wallet using mnemonic phrase
-- GET_WALLET_INFO: Get information about existing wallet
+- GET_WALLET_INFO: Get information about existing wallet (addresses, balances, portfolio summary)
 - MONITOR_WALLET: Start monitoring a wallet for transactions
 - GET_WALLET_TRANSACTIONS: Retrieve wallet transaction history
+- TRANSFER_ETH: Transfer ETH to address or ENS name (requires amount and recipient)
 - NONE: No specific wallet action requested
+
+IMPORTANT CONTEXT:
+- User wallets are saved to persistent storage at ./wallet-storage/user-wallet.json
+- Always check if wallet exists before creating new ones
+- For transfers, extract amount (in ETH) and recipient (address or ENS name) from user text
+- Common wallet info queries: "what is my wallet address", "show my address", "my wallet", "wallet info", "portfolio"
 
 Respond ONLY with a JSON object in this exact format:
 {
@@ -79,11 +86,27 @@ Be very confident in your classification - only use "NONE" if you're sure they d
         };
       }
 
+      // Generate specific response based on action type
+      let actionResponse = "";
+      switch (intentData.action) {
+        case 'GET_WALLET_INFO':
+          actionResponse = "GM, crypto explorer! Let me fetch your wallet information for you.";
+          break;
+        case 'CREATE_WALLET':
+          actionResponse = "GM, fellow validator! Ready to mint a new wallet for you!";
+          break;
+        case 'TRANSFER_ETH':
+          actionResponse = "GM, DeFi pioneer! Let me process that transfer for you.";
+          break;
+        default:
+          actionResponse = `GM, crypto pioneer! I understand you want to ${intentData.action.toLowerCase().replace(/_/g, ' ')}. Let me handle that for you!`;
+      }
+
       return {
         isAction: true,
         action: intentData.action,
         parameters: intentData.parameters || {},
-        textResponse: `GM, crypto pioneer! � I understand you want to ${intentData.action.toLowerCase().replace(/_/g, ' ')}. Let me handle that for you!`
+        textResponse: actionResponse
       };
 
     } catch (error) {

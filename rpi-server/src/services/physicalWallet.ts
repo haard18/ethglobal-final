@@ -1,5 +1,6 @@
-import { EthereumWalletGenerator, type WalletInfo } from '../wallet/index.js';
+import { EthereumWalletGenerator, type WalletInfo, type TransferResult } from '../functions/walletCreation.js';
 import { GraphProtocolService, type WalletData, type Transaction } from '../graph/index.js';
+import { WalletStorageService } from '../functions/walletStorage.js';
 
 export interface PhysicalWallet {
   walletInfo: WalletInfo;
@@ -17,22 +18,35 @@ export class PhysicalWalletService {
     this.graphProtocolService = new GraphProtocolService();
   }
 
-  /**
-   * Generates a new physical wallet with Ethereum address
-   */
-  async generatePhysicalWallet(): Promise<PhysicalWallet> {
-    const walletInfo = EthereumWalletGenerator.generateWallet();
+    /**
+     * Generates a new physical wallet with Ethereum address (with persistent storage)
+     */
+    async generatePhysicalWallet(): Promise<PhysicalWallet> {
+        // Check if wallet already exists in storage
+        const existingWallet = WalletStorageService.loadWallet();
+        if (existingWallet) {
+            console.log('🔄 Found existing wallet in storage, loading instead of creating new one');
+            return this.loadExistingWallet(existingWallet.walletInfo);
+        }
 
-    const physicalWallet: PhysicalWallet = {
-      walletInfo,
-      walletData: null,
-      isMonitoring: false,
-      createdAt: new Date(),
-      lastUpdated: new Date(),
-    };
+        const walletInfo = EthereumWalletGenerator.generateWallet();
+        
+        const physicalWallet: PhysicalWallet = {
+            walletInfo,
+            walletData: null,
+            isMonitoring: false,
+            createdAt: new Date(),
+            lastUpdated: new Date()
+        };
 
-    // Store the wallet
-    this.wallets.set(walletInfo.address, physicalWallet);
+        // Store the wallet in memory
+        this.wallets.set(walletInfo.address, physicalWallet);
+
+        // Save to persistent storage
+        WalletStorageService.saveWallet(walletInfo, {
+            label: 'Main Wallet',
+            notes: 'Generated via Physical Wallet Service'
+        });
 
     // Fetch initial wallet data
     try {
@@ -43,8 +57,35 @@ export class PhysicalWalletService {
       console.warn(`Could not fetch initial wallet data for ${walletInfo.address}:`, error);
     }
 
-    return physicalWallet;
-  }
+        return physicalWallet;
+    }
+
+    /**
+     * Load existing wallet from storage
+     */
+    private async loadExistingWallet(walletInfo: WalletInfo): Promise<PhysicalWallet> {
+        const physicalWallet: PhysicalWallet = {
+            walletInfo,
+            walletData: null,
+            isMonitoring: false,
+            createdAt: new Date(), // This could be stored in metadata
+            lastUpdated: new Date()
+        };
+
+        // Store in memory
+        this.wallets.set(walletInfo.address, physicalWallet);
+
+        // Fetch current wallet data
+        try {
+            const walletData = await this.graphProtocolService.getWalletData(walletInfo.address);
+            physicalWallet.walletData = walletData;
+            physicalWallet.lastUpdated = new Date();
+        } catch (error) {
+            console.warn(`Could not fetch wallet data for ${walletInfo.address}:`, error);
+        }
+
+        return physicalWallet;
+    }
 
   /**
    * Import existing wallet from private key
@@ -191,28 +232,98 @@ export class PhysicalWalletService {
     return await this.graphProtocolService.getWalletTransactions(address, 'mainnet', limit);
   }
 
-  /**
-   * Stop monitoring a wallet
-   */
-  stopWalletMonitoring(address: string): void {
-    const wallet = this.wallets.get(address);
-    if (wallet) {
-      wallet.isMonitoring = false;
-      console.log(`Stopped monitoring wallet ${address}`);
+    /**
+     * Stop monitoring a wallet
+     */
+    stopWalletMonitoring(address: string): void {
+        const wallet = this.wallets.get(address);
+        if (wallet) {
+            wallet.isMonitoring = false;
+            console.log(`Stopped monitoring wallet ${address}`);
+        }
     }
-  }
 
-  /**
-   * Remove wallet from service
-   */
-  removeWallet(address: string): boolean {
-    const wallet = this.wallets.get(address);
-    if (wallet) {
-      if (wallet.isMonitoring) {
-        this.stopWalletMonitoring(address);
-      }
-      return this.wallets.delete(address);
+    /**
+     * Transfer ETH from stored wallet to ENS or address
+     */
+    async transferETH(
+        fromAddress: string,
+        toAddressOrEns: string,
+        amount: string,
+        rpcUrl?: string
+    ): Promise<TransferResult> {
+        const wallet = this.wallets.get(fromAddress);
+        if (!wallet) {
+            throw new Error(`Wallet ${fromAddress} not found in service`);
+        }
+
+        return await EthereumWalletGenerator.transferETH(
+            wallet.walletInfo,
+            toAddressOrEns,
+            amount,
+            rpcUrl
+        );
     }
-    return false;
-  }
+
+    /**
+     * Transfer from the main stored wallet (convenience method)
+     */
+    async transferFromMainWallet(
+        toAddressOrEns: string,
+        amount: string,
+        rpcUrl?: string
+    ): Promise<TransferResult> {
+        // Try to get wallet from storage first
+        const storedWallet = WalletStorageService.loadWallet();
+        if (!storedWallet) {
+            throw new Error('No wallet found in storage. Please create a wallet first.');
+        }
+
+        // Load into memory if not already there
+        if (!this.wallets.has(storedWallet.walletInfo.address)) {
+            await this.loadExistingWallet(storedWallet.walletInfo);
+        }
+
+        return await this.transferETH(
+            storedWallet.walletInfo.address,
+            toAddressOrEns,
+            amount,
+            rpcUrl
+        );
+    }
+
+    /**
+     * Remove wallet from service
+     */
+    removeWallet(address: string): boolean {
+        const wallet = this.wallets.get(address);
+        if (wallet) {
+            if (wallet.isMonitoring) {
+                this.stopWalletMonitoring(address);
+            }
+            return this.wallets.delete(address);
+        }
+        return false;
+    }
+
+    /**
+     * Get the main wallet storage path (for GPT reference)
+     */
+    getWalletStoragePath(): string {
+        return WalletStorageService.getStoragePath();
+    }
+
+    /**
+     * Check if main wallet exists in storage
+     */
+    hasStoredWallet(): boolean {
+        return WalletStorageService.hasWallet();
+    }
+
+    /**
+     * Get stored wallet address
+     */
+    getStoredWalletAddress(): string | null {
+        return WalletStorageService.getWalletAddress();
+    }
 }

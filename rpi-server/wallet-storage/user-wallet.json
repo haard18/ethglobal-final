@@ -1,0 +1,14 @@
+{
+  "walletInfo": {
+    "address": "0xA5025f074c460ebce96A6ba1FF132B92ae89fa93",
+    "privateKey": "0xdfc817ed7b6db71ea6077672dfeeb981e681cb17b62a8f1d07f917be5be306b8",
+    "mnemonic": "spice bar blood skirt humor cube fault park swarm friend puppy outside",
+    "publicKey": "0x042abbb15ab6c623e0c17f2bd6950051509bfabcb574b010c16edfde83f291a1c397778f6f743af4a40ba823fc3bbd0581e159a0f6e40aa147fc5d61146c2e02d8"
+  },
+  "createdAt": "2025-09-26T20:34:41.295Z",
+  "lastUsed": "2025-09-26T20:34:41.295Z",
+  "metadata": {
+    "label": "Main Wallet",
+    "notes": "Generated via Physical Wallet Service"
+  }
+}
