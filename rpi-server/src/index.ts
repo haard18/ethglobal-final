@@ -1,13 +1,15 @@
 import express, { type Request, type Response } from "express";
 import { gptService, type ActionableResponse } from "./gpt/service.js";
 import { PhysicalWalletService } from "./services/physicalWallet.js";
+import { TransferService } from "./services/transferService.js";
 import { speakText } from "./output/speak.js";
 
 const app = express();
 const port = 3000;
 
-// Initialize Physical Wallet Service
+// Initialize Services
 const physicalWalletService = new PhysicalWalletService();
+const transferService = new TransferService(physicalWalletService);
 
 // Middleware to parse JSON
 app.use(express.json());
@@ -186,16 +188,17 @@ app.get("/wallet/list", async (req: Request, res: Response) => {
     }
 });
 
-// Transfer ETH endpoint
+// Transfer ETH endpoint (legacy - maintains backward compatibility)
 interface TransferRequest {
     toAddress: string;
     amount: string;
     fromAddress?: string; // Optional, will use main wallet if not provided
+    voiceFeedback?: boolean; // Optional, enables voice announcements
 }
 
 app.post("/wallet/transfer", async (req: Request, res: Response) => {
     try {
-        const { toAddress, amount, fromAddress }: TransferRequest = req.body;
+        const { toAddress, amount, fromAddress, voiceFeedback }: TransferRequest = req.body;
         
         if (!toAddress || !amount) {
             return res.status(400).json({
@@ -211,6 +214,15 @@ app.post("/wallet/transfer", async (req: Request, res: Response) => {
         } else {
             // Use main wallet from storage
             transferResult = await physicalWalletService.transferFromMainWallet(toAddress, amount);
+        }
+        
+        // Optional voice feedback
+        if (voiceFeedback) {
+            if (transferResult.success && transferResult.transactionHash) {
+                speakText(`Transfer successful! Transaction hash ${transferResult.transactionHash.slice(0, 8)}...${transferResult.transactionHash.slice(-6)} completed.`);
+            } else {
+                speakText(`Transfer failed. ${transferResult.error || 'Please check your transaction details.'}`);
+            }
         }
         
         if (transferResult.success) {
@@ -233,6 +245,102 @@ app.post("/wallet/transfer", async (req: Request, res: Response) => {
         res.status(500).json({
             success: false,
             error: "Failed to process transfer",
+            message: error instanceof Error ? error.message : "Unknown error"
+        });
+    }
+});
+
+// Voice-activated transfer endpoint
+app.post("/wallet/transfer/voice", async (req: Request, res: Response) => {
+    try {
+        const { toAddress, amount, rpcUrl }: { toAddress: string; amount: string; rpcUrl?: string } = req.body;
+        
+        if (!toAddress || !amount) {
+            return res.status(400).json({
+                success: false,
+                error: "Bad Request",
+                message: "toAddress and amount are required"
+            });
+        }
+        
+        console.log(`🎤 Voice-activated transfer requested: ${amount} ETH to ${toAddress}`);
+        
+        const transferResponse = await transferService.performVoiceActivatedTransfer(toAddress, amount, rpcUrl);
+        
+        if (transferResponse.success) {
+            res.json({
+                success: true,
+                message: transferResponse.message,
+                transfer: transferResponse.result,
+                walletUsed: transferResponse.walletUsed,
+                timestamp: new Date().toISOString()
+            });
+        } else {
+            res.status(400).json({
+                success: false,
+                error: transferResponse.error || "Transfer failed",
+                message: transferResponse.message,
+                timestamp: new Date().toISOString()
+            });
+        }
+    } catch (error) {
+        console.error("Error in voice transfer:", error);
+        res.status(500).json({
+            success: false,
+            error: "Failed to process voice transfer",
+            message: error instanceof Error ? error.message : "Unknown error"
+        });
+    }
+});
+
+// Get wallet summary for transfer operations
+app.get("/wallet/transfer/summary", async (req: Request, res: Response) => {
+    try {
+        const summary = await transferService.getWalletSummaryForTransfer();
+        const walletCount = physicalWalletService.getWalletCount();
+        
+        res.json({
+            success: true,
+            summary,
+            walletCount,
+            hasWallets: walletCount > 0,
+            timestamp: new Date().toISOString()
+        });
+    } catch (error) {
+        console.error("Error getting transfer summary:", error);
+        res.status(500).json({
+            success: false,
+            error: "Failed to get transfer summary",
+            message: error instanceof Error ? error.message : "Unknown error"
+        });
+    }
+});
+
+// Create wallet for transfer (when no wallets exist)
+app.post("/wallet/transfer/create", async (req: Request, res: Response) => {
+    try {
+        const result = await transferService.createWalletForTransfer();
+        
+        if (result.success) {
+            res.json({
+                success: true,
+                message: result.message,
+                walletAddress: result.address,
+                timestamp: new Date().toISOString()
+            });
+        } else {
+            res.status(400).json({
+                success: false,
+                error: result.message,
+                message: "Failed to create wallet for transfer",
+                timestamp: new Date().toISOString()
+            });
+        }
+    } catch (error) {
+        console.error("Error creating wallet for transfer:", error);
+        res.status(500).json({
+            success: false,
+            error: "Failed to create wallet",
             message: error instanceof Error ? error.message : "Unknown error"
         });
     }

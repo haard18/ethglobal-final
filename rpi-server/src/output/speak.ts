@@ -49,4 +49,53 @@ export function announceWalletCreated(address: string, totalCount: number) {
     speakText(message);
 }
 
+/**
+ * Announce transfer initiation
+ * @param fromAddress - Source wallet address
+ * @param toAddress - Destination address or ENS
+ * @param amount - Amount being transferred
+ */
+export function announceTransferStart(fromAddress: string, toAddress: string, amount: string) {
+    const shortFrom = `${fromAddress.slice(0, 6)}...${fromAddress.slice(-4)}`;
+    const shortTo = toAddress.endsWith('.eth') ? toAddress : `${toAddress.slice(0, 6)}...${toAddress.slice(-4)}`;
+    const message = `Initiating transfer of ${amount} ETH from ${shortFrom} to ${shortTo}. Processing transaction now.`;
+    
+    console.log(`🔊 Transfer start: ${message}`);
+    speakText(message);
+}
+
+/**
+ * Announce successful transfer completion
+ * @param transactionHash - Transaction hash
+ * @param amount - Amount transferred
+ */
+export function announceTransferSuccess(transactionHash: string, amount: string) {
+    const shortHash = `${transactionHash.slice(0, 8)}...${transactionHash.slice(-6)}`;
+    const message = `Transfer successful! ${amount} ETH has been sent. Transaction hash ${shortHash}. The funds should arrive shortly.`;
+    
+    console.log(`🔊 Transfer success: ${message}`);
+    speakText(message);
+}
+
+/**
+ * Announce transfer failure with reason
+ * @param reason - Reason for failure
+ */
+export function announceTransferFailure(reason: string) {
+    const message = `Transfer failed. ${reason} Please check your wallet balance and try again.`;
+    
+    console.log(`🔊 Transfer failure: ${message}`);
+    speakText(message);
+}
+
+/**
+ * Announce no wallets available
+ */
+export function announceNoWallets() {
+    const message = "No wallets found in your account. You need to create a wallet before making transfers. Would you like me to create a new wallet for you?";
+    
+    console.log(`🔊 No wallets: ${message}`);
+    speakText(message);
+}
+
 // Example usage
