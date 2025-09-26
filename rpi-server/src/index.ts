@@ -6,8 +6,8 @@ import { speakText } from "./output/speak.js";
 const app = express();
 const port = 3000;
 
-// Initialize Physical Wallet Service (you can add Etherscan API key as environment variable)
-const physicalWalletService = new PhysicalWalletService(process.env.ETHERSCAN_API_KEY);
+// Initialize Physical Wallet Service
+const physicalWalletService = new PhysicalWalletService();
 
 // Middleware to parse JSON
 app.use(express.json());
@@ -202,13 +202,13 @@ app.get("/wallet/:address/transactions", async (req: Request, res: Response) => 
             success: true,
             address,
             transactions: transactions.map(tx => ({
-                id: tx.id,
-                timestamp: new Date(parseInt(tx.timestamp) * 1000).toISOString(),
+                id: tx.transaction_id,
+                timestamp: new Date(tx.timestamp * 1000).toISOString(),
                 from: tx.from,
                 to: tx.to,
                 value: tx.value,
-                gasUsed: tx.gasUsed,
-                gasPrice: tx.gasPrice
+                symbol: tx.symbol,
+                decimals: tx.decimals
             })),
             count: transactions.length,
             timestamp: new Date().toISOString()

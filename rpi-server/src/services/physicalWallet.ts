@@ -1,215 +1,218 @@
-import { EthereumWalletGenerator, type WalletInfo } from '../functions/walletCreation.js';
-import { TokenAPIService, type WalletData, type Transaction } from '../graph/tokenApi.js';
+import { EthereumWalletGenerator, type WalletInfo } from '../wallet/index.js';
+import { GraphProtocolService, type WalletData, type Transaction } from '../graph/index.js';
 
 export interface PhysicalWallet {
-    walletInfo: WalletInfo;
-    walletData: WalletData | null;
-    isMonitoring: boolean;
-    createdAt: Date;
-    lastUpdated: Date;
+  walletInfo: WalletInfo;
+  walletData: WalletData | null;
+  isMonitoring: boolean;
+  createdAt: Date;
+  lastUpdated: Date;
 }
 
 export class PhysicalWalletService {
-    private tokenApiService: TokenAPIService;
-    private wallets: Map<string, PhysicalWallet> = new Map();
+  private graphProtocolService: GraphProtocolService;
+  private wallets: Map<string, PhysicalWallet> = new Map();
 
-    constructor(etherscanApiKey?: string, rpcUrl?: string) {
-        this.tokenApiService = new TokenAPIService(etherscanApiKey, rpcUrl);
+  constructor() {
+    this.graphProtocolService = new GraphProtocolService();
+  }
+
+  /**
+   * Generates a new physical wallet with Ethereum address
+   */
+  async generatePhysicalWallet(): Promise<PhysicalWallet> {
+    const walletInfo = EthereumWalletGenerator.generateWallet();
+
+    const physicalWallet: PhysicalWallet = {
+      walletInfo,
+      walletData: null,
+      isMonitoring: false,
+      createdAt: new Date(),
+      lastUpdated: new Date(),
+    };
+
+    // Store the wallet
+    this.wallets.set(walletInfo.address, physicalWallet);
+
+    // Fetch initial wallet data
+    try {
+      const walletData = await this.graphProtocolService.getWalletData(walletInfo.address);
+      physicalWallet.walletData = walletData;
+      physicalWallet.lastUpdated = new Date();
+    } catch (error) {
+      console.warn(`Could not fetch initial wallet data for ${walletInfo.address}:`, error);
     }
 
-    /**
-     * Generates a new physical wallet with Ethereum address
-     */
-    async generatePhysicalWallet(): Promise<PhysicalWallet> {
-        const walletInfo = EthereumWalletGenerator.generateWallet();
-        
-        const physicalWallet: PhysicalWallet = {
-            walletInfo,
-            walletData: null,
-            isMonitoring: false,
-            createdAt: new Date(),
-            lastUpdated: new Date()
-        };
+    return physicalWallet;
+  }
 
-        // Store the wallet
-        this.wallets.set(walletInfo.address, physicalWallet);
+  /**
+   * Import existing wallet from private key
+   */
+  async importWalletFromPrivateKey(privateKey: string): Promise<PhysicalWallet> {
+    const walletInfo = EthereumWalletGenerator.fromPrivateKey(privateKey);
 
-        // Fetch initial wallet data
-        try {
-            const walletData = await this.tokenApiService.getWalletData(walletInfo.address);
-            physicalWallet.walletData = walletData;
-            physicalWallet.lastUpdated = new Date();
-        } catch (error) {
-            console.warn(`Could not fetch initial wallet data for ${walletInfo.address}:`, error);
-        }
+    const physicalWallet: PhysicalWallet = {
+      walletInfo,
+      walletData: null,
+      isMonitoring: false,
+      createdAt: new Date(),
+      lastUpdated: new Date(),
+    };
 
-        return physicalWallet;
+    // Store the wallet
+    this.wallets.set(walletInfo.address, physicalWallet);
+
+    // Fetch wallet data
+    try {
+      const walletData = await this.graphProtocolService.getWalletData(walletInfo.address);
+      physicalWallet.walletData = walletData;
+      physicalWallet.lastUpdated = new Date();
+    } catch (error) {
+      console.warn(`Could not fetch wallet data for ${walletInfo.address}:`, error);
     }
 
-    /**
-     * Import existing wallet from private key
-     */
-    async importWalletFromPrivateKey(privateKey: string): Promise<PhysicalWallet> {
-        const walletInfo = EthereumWalletGenerator.fromPrivateKey(privateKey);
-        
-        const physicalWallet: PhysicalWallet = {
-            walletInfo,
-            walletData: null,
-            isMonitoring: false,
-            createdAt: new Date(),
-            lastUpdated: new Date()
-        };
+    return physicalWallet;
+  }
 
-        // Store the wallet
-        this.wallets.set(walletInfo.address, physicalWallet);
+  /**
+   * Import existing wallet from mnemonic
+   */
+  async importWalletFromMnemonic(mnemonic: string): Promise<PhysicalWallet> {
+    const walletInfo = EthereumWalletGenerator.fromMnemonic(mnemonic);
 
-        // Fetch wallet data
-        try {
-            const walletData = await this.tokenApiService.getWalletData(walletInfo.address);
-            physicalWallet.walletData = walletData;
-            physicalWallet.lastUpdated = new Date();
-        } catch (error) {
-            console.warn(`Could not fetch wallet data for ${walletInfo.address}:`, error);
-        }
+    const physicalWallet: PhysicalWallet = {
+      walletInfo,
+      walletData: null,
+      isMonitoring: false,
+      createdAt: new Date(),
+      lastUpdated: new Date(),
+    };
 
-        return physicalWallet;
+    // Store the wallet
+    this.wallets.set(walletInfo.address, physicalWallet);
+
+    // Fetch wallet data
+    try {
+      const walletData = await this.graphProtocolService.getWalletData(walletInfo.address);
+      physicalWallet.walletData = walletData;
+      physicalWallet.lastUpdated = new Date();
+    } catch (error) {
+      console.warn(`Could not fetch wallet data for ${walletInfo.address}:`, error);
     }
 
-    /**
-     * Import existing wallet from mnemonic
-     */
-    async importWalletFromMnemonic(mnemonic: string): Promise<PhysicalWallet> {
-        const walletInfo = EthereumWalletGenerator.fromMnemonic(mnemonic);
-        
-        const physicalWallet: PhysicalWallet = {
-            walletInfo,
-            walletData: null,
-            isMonitoring: false,
-            createdAt: new Date(),
-            lastUpdated: new Date()
-        };
+    return physicalWallet;
+  }
 
-        // Store the wallet
-        this.wallets.set(walletInfo.address, physicalWallet);
-
-        // Fetch wallet data
-        try {
-            const walletData = await this.tokenApiService.getWalletData(walletInfo.address);
-            physicalWallet.walletData = walletData;
-            physicalWallet.lastUpdated = new Date();
-        } catch (error) {
-            console.warn(`Could not fetch wallet data for ${walletInfo.address}:`, error);
-        }
-
-        return physicalWallet;
+  /**
+   * Start monitoring a wallet for new transactions
+   */
+  async startWalletMonitoring(address: string, intervalMs: number = 30000): Promise<void> {
+    const wallet = this.wallets.get(address);
+    if (!wallet) {
+      throw new Error(`Wallet ${address} not found`);
+    }
+    if (wallet.isMonitoring) {
+      console.log(`Wallet ${address} is already being monitored`);
+      return;
     }
 
-    /**
-     * Start monitoring a wallet for new transactions
-     */
-    async startWalletMonitoring(address: string, intervalMs: number = 30000): Promise<void> {
-        const wallet = this.wallets.get(address);
-        if (!wallet) {
-            throw new Error(`Wallet ${address} not found`);
-        }
+    wallet.isMonitoring = true;
 
-        if (wallet.isMonitoring) {
-            console.log(`Wallet ${address} is already being monitored`);
-            return;
-        }
+    const transactionCallback = async (transaction: Transaction) => {
+      console.log(`New transaction detected for wallet ${address}:`, {
+        id: transaction.transaction_id,
+        from: transaction.from,
+        to: transaction.to,
+        value: transaction.value,
+        datetime: transaction.datetime,
+      });
 
-        wallet.isMonitoring = true;
+      // Update wallet data when a new transaction is detected
+      try {
+        const updatedWalletData = await this.graphProtocolService.getWalletData(address);
+        wallet.walletData = updatedWalletData;
+        wallet.lastUpdated = new Date();
+      } catch (error) {
+        console.error(`Failed to update wallet data for ${address}:`, error);
+      }
+    };
 
-        const transactionCallback = async (transaction: Transaction) => {
-            console.log(`New transaction detected for wallet ${address}:`, {
-                id: transaction.id,
-                from: transaction.from,
-                to: transaction.to,
-                value: transaction.value,
-                timestamp: new Date(parseInt(transaction.timestamp) * 1000).toISOString()
-            });
+    // Start monitoring
+    await this.graphProtocolService.startWalletMonitoring(
+      address,
+      transactionCallback,
+      intervalMs
+    );
+  }
 
-            // Update wallet data when new transaction is detected
-            try {
-                const updatedWalletData = await this.tokenApiService.getWalletData(address);
-                wallet.walletData = updatedWalletData;
-                wallet.lastUpdated = new Date();
-            } catch (error) {
-                console.error(`Failed to update wallet data for ${address}:`, error);
-            }
-        };
+  /**
+   * Get wallet by address
+   */
+  getWallet(address: string): PhysicalWallet | undefined {
+    return this.wallets.get(address);
+  }
 
-        // Start monitoring
-        await this.tokenApiService.startWalletMonitoring(address, transactionCallback, intervalMs);
+  /**
+   * Get all wallets
+   */
+  getAllWallets(): PhysicalWallet[] {
+    return Array.from(this.wallets.values());
+  }
+
+  /**
+   * Update wallet data manually
+   */
+  async updateWalletData(address: string): Promise<WalletData> {
+    const wallet = this.wallets.get(address);
+    if (!wallet) {
+      throw new Error(`Wallet ${address} not found`);
     }
 
-    /**
-     * Get wallet by address
-     */
-    getWallet(address: string): PhysicalWallet | undefined {
-        return this.wallets.get(address);
+    try {
+      const walletData = await this.graphProtocolService.getWalletData(address);
+      wallet.walletData = walletData;
+      wallet.lastUpdated = new Date();
+      return walletData;
+    } catch (error) {
+      throw new Error(`Failed to update wallet data: ${error}`);
+    }
+  }
+
+  /**
+   * Get wallet transactions
+   */
+  async getWalletTransactions(address: string, limit: number = 10): Promise<Transaction[]> {
+    const wallet = this.wallets.get(address);
+    if (!wallet) {
+      throw new Error(`Wallet ${address} not found`);
     }
 
-    /**
-     * Get all wallets
-     */
-    getAllWallets(): PhysicalWallet[] {
-        return Array.from(this.wallets.values());
+    return await this.graphProtocolService.getWalletTransactions(address, 'mainnet', limit);
+  }
+
+  /**
+   * Stop monitoring a wallet
+   */
+  stopWalletMonitoring(address: string): void {
+    const wallet = this.wallets.get(address);
+    if (wallet) {
+      wallet.isMonitoring = false;
+      console.log(`Stopped monitoring wallet ${address}`);
     }
+  }
 
-    /**
-     * Update wallet data manually
-     */
-    async updateWalletData(address: string): Promise<WalletData> {
-        const wallet = this.wallets.get(address);
-        if (!wallet) {
-            throw new Error(`Wallet ${address} not found`);
-        }
-
-        try {
-            const walletData = await this.tokenApiService.getWalletData(address);
-            wallet.walletData = walletData;
-            wallet.lastUpdated = new Date();
-            return walletData;
-        } catch (error) {
-            throw new Error(`Failed to update wallet data: ${error}`);
-        }
+  /**
+   * Remove wallet from service
+   */
+  removeWallet(address: string): boolean {
+    const wallet = this.wallets.get(address);
+    if (wallet) {
+      if (wallet.isMonitoring) {
+        this.stopWalletMonitoring(address);
+      }
+      return this.wallets.delete(address);
     }
-
-    /**
-     * Get wallet transactions
-     */
-    async getWalletTransactions(address: string, limit: number = 10): Promise<Transaction[]> {
-        const wallet = this.wallets.get(address);
-        if (!wallet) {
-            throw new Error(`Wallet ${address} not found`);
-        }
-
-        return await this.tokenApiService.getWalletTransactions(address, limit);
-    }
-
-    /**
-     * Stop monitoring a wallet
-     */
-    stopWalletMonitoring(address: string): void {
-        const wallet = this.wallets.get(address);
-        if (wallet) {
-            wallet.isMonitoring = false;
-            console.log(`Stopped monitoring wallet ${address}`);
-        }
-    }
-
-    /**
-     * Remove wallet from service
-     */
-    removeWallet(address: string): boolean {
-        const wallet = this.wallets.get(address);
-        if (wallet) {
-            if (wallet.isMonitoring) {
-                this.stopWalletMonitoring(address);
-            }
-            return this.wallets.delete(address);
-        }
-        return false;
-    }
+    return false;
+  }
 }
