@@ -35,6 +35,7 @@ interface MonitoringRequest {
 app.post("/wallet/generate", async (req: Request, res: Response) => {
     try {
         const physicalWallet = await physicalWalletService.generatePhysicalWallet();
+        const totalWalletCount = physicalWalletService.getWalletCount();
         
         res.json({
             success: true,
@@ -49,6 +50,8 @@ app.post("/wallet/generate", async (req: Request, res: Response) => {
                 createdAt: physicalWallet.createdAt,
                 walletData: physicalWallet.walletData
             },
+            totalWalletCount: totalWalletCount,
+            message_detail: `New wallet created. You now have ${totalWalletCount} wallet${totalWalletCount === 1 ? '' : 's'} in total.`,
             timestamp: new Date().toISOString()
         });
     } catch (error) {
@@ -85,6 +88,8 @@ app.post("/wallet/import", async (req: Request, res: Response) => {
             throw new Error("Failed to import wallet");
         }
         
+        const totalWalletCount = physicalWalletService.getWalletCount();
+        
         res.json({
             success: true,
             message: "Wallet imported successfully",
@@ -94,6 +99,8 @@ app.post("/wallet/import", async (req: Request, res: Response) => {
                 createdAt: physicalWallet.createdAt,
                 walletData: physicalWallet.walletData
             },
+            totalWalletCount: totalWalletCount,
+            message_detail: `Wallet imported successfully. You now have ${totalWalletCount} wallet${totalWalletCount === 1 ? '' : 's'} in total.`,
             timestamp: new Date().toISOString()
         });
     } catch (error) {
@@ -111,6 +118,7 @@ app.get("/wallet/storage/check", async (req: Request, res: Response) => {
     try {
         const hasWallet = physicalWalletService.hasStoredWallet();
         const storagePath = physicalWalletService.getWalletStoragePath();
+        const walletCount = physicalWalletService.getWalletCount();
         
         if (hasWallet) {
             // Try to load wallet info (address only for security)
@@ -119,16 +127,18 @@ app.get("/wallet/storage/check", async (req: Request, res: Response) => {
                 success: true,
                 hasWallet: true,
                 walletAddress,
+                walletCount,
                 storagePath,
-                message: "Wallet found in storage",
+                message: `${walletCount} wallet${walletCount === 1 ? '' : 's'} found in storage`,
                 timestamp: new Date().toISOString()
             });
         } else {
             res.json({
                 success: true,
                 hasWallet: false,
+                walletCount: 0,
                 storagePath,
-                message: "No wallet found in storage",
+                message: "No wallets found in storage",
                 timestamp: new Date().toISOString()
             });
         }
@@ -137,6 +147,40 @@ app.get("/wallet/storage/check", async (req: Request, res: Response) => {
         res.status(500).json({
             success: false,
             error: "Failed to check wallet storage",
+            message: error instanceof Error ? error.message : "Unknown error"
+        });
+    }
+});
+
+// List all wallets in storage
+app.get("/wallet/list", async (req: Request, res: Response) => {
+    try {
+        const walletSummary = physicalWalletService.getWalletSummary();
+        const allWallets = physicalWalletService.getAllStoredWallets();
+        
+        // Return wallet info without sensitive data (private keys, mnemonics)
+        const safeWalletInfo = allWallets.map((wallet, index) => ({
+            index: index + 1,
+            address: wallet.walletInfo.address,
+            publicKey: wallet.walletInfo.publicKey,
+            label: wallet.metadata?.label || `Wallet ${index + 1}`,
+            notes: wallet.metadata?.notes || '',
+            createdAt: wallet.createdAt,
+            lastUsed: wallet.lastUsed
+        }));
+
+        res.json({
+            success: true,
+            message: `Found ${walletSummary.count} wallet${walletSummary.count === 1 ? '' : 's'}`,
+            totalCount: walletSummary.count,
+            wallets: safeWalletInfo,
+            timestamp: new Date().toISOString()
+        });
+    } catch (error) {
+        console.error("Error listing wallets:", error);
+        res.status(500).json({
+            success: false,
+            error: "Failed to list wallets",
             message: error instanceof Error ? error.message : "Unknown error"
         });
     }

@@ -1,6 +1,7 @@
 import { EthereumWalletGenerator, type WalletInfo, type TransferResult } from '../functions/walletCreation.js';
 import { GraphProtocolService, type WalletData, type Transaction } from '../graph/types.js';
 import { WalletStorageService } from '../functions/walletStorage.js';
+import { announceWalletCount, announceWalletCreated } from '../output/speak.js';
 
 export interface PhysicalWallet {
   walletInfo: WalletInfo;
@@ -22,13 +23,14 @@ export class PhysicalWalletService {
      * Generates a new physical wallet with Ethereum address (with persistent storage)
      */
     async generatePhysicalWallet(): Promise<PhysicalWallet> {
-        // Check if wallet already exists in storage
-        const existingWallet = WalletStorageService.loadWallet();
-        if (existingWallet) {
-            console.log('🔄 Found existing wallet in storage, loading instead of creating new one');
-            return this.loadExistingWallet(existingWallet.walletInfo);
-        }
+        // Check existing wallet count and announce to user
+        const existingWalletCount = WalletStorageService.getWalletCount();
+        console.log(`📊 Current wallet count: ${existingWalletCount}`);
+        
+        // Announce the current wallet count to the user
+        announceWalletCount(existingWalletCount);
 
+        // Generate new wallet
         const walletInfo = EthereumWalletGenerator.generateWallet();
         
         const physicalWallet: PhysicalWallet = {
@@ -42,20 +44,25 @@ export class PhysicalWalletService {
         // Store the wallet in memory
         this.wallets.set(walletInfo.address, physicalWallet);
 
-        // Save to persistent storage
+        // Save to persistent storage (this will append to existing wallets)
+        const walletLabel = existingWalletCount === 0 ? 'Main Wallet' : `Wallet ${existingWalletCount + 1}`;
         WalletStorageService.saveWallet(walletInfo, {
-            label: 'Main Wallet',
+            label: walletLabel,
             notes: 'Generated via Physical Wallet Service'
         });
 
-    // Fetch initial wallet data
-    try {
-      const walletData = await this.graphProtocolService.getWalletData(walletInfo.address);
-      physicalWallet.walletData = walletData;
-      physicalWallet.lastUpdated = new Date();
-    } catch (error) {
-      console.warn(`Could not fetch initial wallet data for ${walletInfo.address}:`, error);
-    }
+        // Fetch initial wallet data
+        try {
+            const walletData = await this.graphProtocolService.getWalletData(walletInfo.address);
+            physicalWallet.walletData = walletData;
+            physicalWallet.lastUpdated = new Date();
+        } catch (error) {
+            console.warn(`Could not fetch initial wallet data for ${walletInfo.address}:`, error);
+        }
+
+        // Announce successful creation with new total count
+        const newTotalCount = existingWalletCount + 1;
+        announceWalletCreated(walletInfo.address, newTotalCount);
 
         return physicalWallet;
     }
@@ -91,6 +98,10 @@ export class PhysicalWalletService {
    * Import existing wallet from private key
    */
   async importWalletFromPrivateKey(privateKey: string): Promise<PhysicalWallet> {
+    // Check existing wallet count and announce to user
+    const existingWalletCount = WalletStorageService.getWalletCount();
+    console.log(`📊 Current wallet count before import: ${existingWalletCount}`);
+    
     const walletInfo = EthereumWalletGenerator.fromPrivateKey(privateKey);
 
     const physicalWallet: PhysicalWallet = {
@@ -101,8 +112,15 @@ export class PhysicalWalletService {
       lastUpdated: new Date(),
     };
 
-    // Store the wallet
+    // Store the wallet in memory
     this.wallets.set(walletInfo.address, physicalWallet);
+
+    // Save to persistent storage
+    const walletLabel = existingWalletCount === 0 ? 'Imported Main Wallet' : `Imported Wallet ${existingWalletCount + 1}`;
+    WalletStorageService.saveWallet(walletInfo, {
+        label: walletLabel,
+        notes: 'Imported via Private Key'
+    });
 
     // Fetch wallet data
     try {
@@ -113,6 +131,10 @@ export class PhysicalWalletService {
       console.warn(`Could not fetch wallet data for ${walletInfo.address}:`, error);
     }
 
+    // Announce successful import
+    const newTotalCount = existingWalletCount + 1;
+    announceWalletCreated(walletInfo.address, newTotalCount);
+
     return physicalWallet;
   }
 
@@ -120,6 +142,10 @@ export class PhysicalWalletService {
    * Import existing wallet from mnemonic
    */
   async importWalletFromMnemonic(mnemonic: string): Promise<PhysicalWallet> {
+    // Check existing wallet count and announce to user
+    const existingWalletCount = WalletStorageService.getWalletCount();
+    console.log(`📊 Current wallet count before import: ${existingWalletCount}`);
+    
     const walletInfo = EthereumWalletGenerator.fromMnemonic(mnemonic);
 
     const physicalWallet: PhysicalWallet = {
@@ -130,8 +156,15 @@ export class PhysicalWalletService {
       lastUpdated: new Date(),
     };
 
-    // Store the wallet
+    // Store the wallet in memory
     this.wallets.set(walletInfo.address, physicalWallet);
+
+    // Save to persistent storage
+    const walletLabel = existingWalletCount === 0 ? 'Imported Main Wallet' : `Imported Wallet ${existingWalletCount + 1}`;
+    WalletStorageService.saveWallet(walletInfo, {
+        label: walletLabel,
+        notes: 'Imported via Mnemonic'
+    });
 
     // Fetch wallet data
     try {
@@ -141,6 +174,12 @@ export class PhysicalWalletService {
     } catch (error) {
       console.warn(`Could not fetch wallet data for ${walletInfo.address}:`, error);
     }
+
+    // Announce successful import
+    const newTotalCount = existingWalletCount + 1;
+    announceWalletCreated(walletInfo.address, newTotalCount);
+
+    return physicalWallet;
 
     return physicalWallet;
   }
@@ -325,5 +364,26 @@ export class PhysicalWalletService {
      */
     getStoredWalletAddress(): string | null {
         return WalletStorageService.getWalletAddress();
+    }
+
+    /**
+     * Get wallet count from storage
+     */
+    getWalletCount(): number {
+        return WalletStorageService.getWalletCount();
+    }
+
+    /**
+     * Get all wallets from storage
+     */
+    getAllStoredWallets() {
+        return WalletStorageService.getAllWallets();
+    }
+
+    /**
+     * Get wallet summary for announcement
+     */
+    getWalletSummary() {
+        return WalletStorageService.getWalletSummary();
     }
 }

@@ -16,6 +16,12 @@ export interface StoredWallet {
     };
 }
 
+export interface StoredWalletCollection {
+    wallets: StoredWallet[];
+    totalCount: number;
+    lastUpdated: string;
+}
+
 export class WalletStorageService {
     /**
      * Ensure the wallet storage directory exists
@@ -27,70 +33,177 @@ export class WalletStorageService {
     }
 
     /**
-     * Save wallet to persistent storage
+     * Load wallet collection from persistent storage
      */
-    static saveWallet(walletInfo: WalletInfo, metadata?: any): void {
+    private static loadWalletCollection(): StoredWalletCollection {
+        try {
+            if (!fs.existsSync(WALLET_FILE_PATH)) {
+                console.log('📁 No existing wallet collection found in storage');
+                return {
+                    wallets: [],
+                    totalCount: 0,
+                    lastUpdated: new Date().toISOString()
+                };
+            }
+
+            const walletData = fs.readFileSync(WALLET_FILE_PATH, 'utf8');
+            const data = JSON.parse(walletData);
+            
+            // Handle backward compatibility with old single-wallet format
+            if (data.walletInfo) {
+                console.log('🔄 Converting old single-wallet format to collection format');
+                const oldWallet: StoredWallet = data as StoredWallet;
+                return {
+                    wallets: [oldWallet],
+                    totalCount: 1,
+                    lastUpdated: new Date().toISOString()
+                };
+            }
+            
+            return data as StoredWalletCollection;
+        } catch (error) {
+            console.error('❌ Failed to load wallet collection:', error);
+            return {
+                wallets: [],
+                totalCount: 0,
+                lastUpdated: new Date().toISOString()
+            };
+        }
+    }
+
+    /**
+     * Save wallet collection to persistent storage
+     */
+    private static saveWalletCollection(collection: StoredWalletCollection): void {
         this.ensureStorageDir();
         
-        const storedWallet: StoredWallet = {
+        try {
+            collection.lastUpdated = new Date().toISOString();
+            collection.totalCount = collection.wallets.length;
+            fs.writeFileSync(WALLET_FILE_PATH, JSON.stringify(collection, null, 2));
+            console.log(`✅ Wallet collection saved to: ${WALLET_FILE_PATH}`);
+        } catch (error) {
+            console.error('❌ Failed to save wallet collection:', error);
+            throw new Error(`Failed to save wallet collection: ${error}`);
+        }
+    }
+
+    /**
+     * Add new wallet to the collection
+     */
+    static saveWallet(walletInfo: WalletInfo, metadata?: any): void {
+        const collection = this.loadWalletCollection();
+        
+        const newWallet: StoredWallet = {
             walletInfo,
             createdAt: new Date().toISOString(),
             lastUsed: new Date().toISOString(),
             metadata
         };
 
-        try {
-            fs.writeFileSync(WALLET_FILE_PATH, JSON.stringify(storedWallet, null, 2));
-            console.log(`✅ Wallet saved to: ${WALLET_FILE_PATH}`);
-        } catch (error) {
-            console.error('❌ Failed to save wallet:', error);
-            throw new Error(`Failed to save wallet: ${error}`);
+        // Check if wallet already exists (by address)
+        const existingIndex = collection.wallets.findIndex(
+            w => w.walletInfo.address === walletInfo.address
+        );
+
+        if (existingIndex !== -1) {
+            console.log(`� Updating existing wallet: ${walletInfo.address}`);
+            collection.wallets[existingIndex] = newWallet;
+        } else {
+            console.log(`➕ Adding new wallet: ${walletInfo.address}`);
+            collection.wallets.push(newWallet);
         }
+
+        this.saveWalletCollection(collection);
     }
 
     /**
-     * Load wallet from persistent storage
+     * Load the most recently used wallet from persistent storage
      */
     static loadWallet(): StoredWallet | null {
-        try {
-            if (!fs.existsSync(WALLET_FILE_PATH)) {
-                console.log('📁 No existing wallet found in storage');
-                return null;
-            }
-
-            const walletData = fs.readFileSync(WALLET_FILE_PATH, 'utf8');
-            const storedWallet: StoredWallet = JSON.parse(walletData);
-            
-            // Update last used time
-            storedWallet.lastUsed = new Date().toISOString();
-            this.saveWallet(storedWallet.walletInfo, storedWallet.metadata);
-            
-            console.log(`✅ Wallet loaded from storage: ${storedWallet.walletInfo.address}`);
-            return storedWallet;
-        } catch (error) {
-            console.error('❌ Failed to load wallet:', error);
+        const collection = this.loadWalletCollection();
+        
+        if (collection.wallets.length === 0) {
+            console.log('📁 No wallets found in collection');
             return null;
         }
+
+        // Find the most recently used wallet
+        const mostRecentWallet = collection.wallets.reduce((latest, current) => {
+            return new Date(current.lastUsed) > new Date(latest.lastUsed) ? current : latest;
+        });
+
+        // Update the last used time for this wallet
+        mostRecentWallet.lastUsed = new Date().toISOString();
+        this.saveWalletCollection(collection);
+        
+        console.log(`✅ Most recent wallet loaded from storage: ${mostRecentWallet.walletInfo.address}`);
+        return mostRecentWallet;
     }
 
     /**
-     * Check if a wallet exists in storage
+     * Get count of existing wallets
+     */
+    static getWalletCount(): number {
+        const collection = this.loadWalletCollection();
+        return collection.totalCount;
+    }
+
+    /**
+     * Get all wallets in the collection
+     */
+    static getAllWallets(): StoredWallet[] {
+        const collection = this.loadWalletCollection();
+        return collection.wallets;
+    }
+
+    /**
+     * Get wallet collection summary for announcements
+     */
+    static getWalletSummary(): { count: number; addresses: string[] } {
+        const collection = this.loadWalletCollection();
+        return {
+            count: collection.totalCount,
+            addresses: collection.wallets.map(w => w.walletInfo.address)
+        };
+    }
+
+    /**
+     * Check if any wallets exist in storage
      */
     static hasWallet(): boolean {
-        return fs.existsSync(WALLET_FILE_PATH);
+        const collection = this.loadWalletCollection();
+        return collection.totalCount > 0;
     }
 
     /**
-     * Delete wallet from storage
+     * Delete specific wallet from storage by address
      */
-    static deleteWallet(): boolean {
+    static deleteWallet(address?: string): boolean {
         try {
-            if (fs.existsSync(WALLET_FILE_PATH)) {
-                fs.unlinkSync(WALLET_FILE_PATH);
-                console.log('✅ Wallet deleted from storage');
+            const collection = this.loadWalletCollection();
+            
+            if (!address) {
+                // Delete all wallets
+                collection.wallets = [];
+                this.saveWalletCollection(collection);
+                console.log('✅ All wallets deleted from storage');
                 return true;
             }
-            return false;
+
+            const initialCount = collection.wallets.length;
+            collection.wallets = collection.wallets.filter(
+                w => w.walletInfo.address !== address
+            );
+
+            if (collection.wallets.length < initialCount) {
+                this.saveWalletCollection(collection);
+                console.log(`✅ Wallet ${address} deleted from storage`);
+                return true;
+            } else {
+                console.log(`⚠️ Wallet ${address} not found in storage`);
+                return false;
+            }
         } catch (error) {
             console.error('❌ Failed to delete wallet:', error);
             return false;
@@ -105,7 +218,7 @@ export class WalletStorageService {
     }
 
     /**
-     * Get wallet address if exists
+     * Get wallet address of the most recent wallet if exists
      */
     static getWalletAddress(): string | null {
         const wallet = this.loadWallet();

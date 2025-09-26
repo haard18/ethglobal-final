@@ -1,14 +1,34 @@
 {
-  "walletInfo": {
-    "address": "0xA5025f074c460ebce96A6ba1FF132B92ae89fa93",
-    "privateKey": "0xdfc817ed7b6db71ea6077672dfeeb981e681cb17b62a8f1d07f917be5be306b8",
-    "mnemonic": "spice bar blood skirt humor cube fault park swarm friend puppy outside",
-    "publicKey": "0x042abbb15ab6c623e0c17f2bd6950051509bfabcb574b010c16edfde83f291a1c397778f6f743af4a40ba823fc3bbd0581e159a0f6e40aa147fc5d61146c2e02d8"
-  },
-  "createdAt": "2025-09-26T20:58:42.969Z",
-  "lastUsed": "2025-09-26T20:58:42.969Z",
-  "metadata": {
-    "label": "Main Wallet",
-    "notes": "Generated via Physical Wallet Service"
-  }
+  "wallets": [
+    {
+      "walletInfo": {
+        "address": "0xA5025f074c460ebce96A6ba1FF132B92ae89fa93",
+        "privateKey": "0xdfc817ed7b6db71ea6077672dfeeb981e681cb17b62a8f1d07f917be5be306b8",
+        "mnemonic": "spice bar blood skirt humor cube fault park swarm friend puppy outside",
+        "publicKey": "0x042abbb15ab6c623e0c17f2bd6950051509bfabcb574b010c16edfde83f291a1c397778f6f743af4a40ba823fc3bbd0581e159a0f6e40aa147fc5d61146c2e02d8"
+      },
+      "createdAt": "2025-09-26T21:01:45.659Z",
+      "lastUsed": "2025-09-26T21:01:45.659Z",
+      "metadata": {
+        "label": "Main Wallet",
+        "notes": "Generated via Physical Wallet Service"
+      }
+    },
+    {
+      "walletInfo": {
+        "address": "0x2870d73050e1976924172F1201b1fc295C826e86",
+        "privateKey": "0x0842c56f74280a8cf89992bbfd75d0ae87e07873dedb3ed35f4923684f868711",
+        "mnemonic": "error account swim vote clarify laptop van banner dad forum pole athlete",
+        "publicKey": "0x046451f533e180c81d812f9793ab3d3e6eaeee7b1720e6a2a8a85f2d935b9d20f2b1bb2e73d50245451e6121ced07315e2053bf13c67757b589102a5ef500a07d5"
+      },
+      "createdAt": "2025-09-26T21:18:03.780Z",
+      "lastUsed": "2025-09-26T21:18:03.780Z",
+      "metadata": {
+        "label": "Wallet 2",
+        "notes": "Generated via Physical Wallet Service"
+      }
+    }
+  ],
+  "totalCount": 2,
+  "lastUpdated": "2025-09-26T21:18:03.780Z"
 }
