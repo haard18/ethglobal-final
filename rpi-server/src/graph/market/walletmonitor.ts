@@ -1,61 +1,153 @@
-import { WalletStorageService, type StoredWallet } from  '../../functions/walletStorage.js';
-import { type WalletInfo } from '../../functions/walletCreation.js';
+import { WalletStorageService, type StoredWallet } from '../../functions/walletStorage.ts';
+import { type WalletInfo } from '../../functions/walletCreation.ts';
+import axios from 'axios';
 
-// Types for Graph Protocol data
+export interface TokenBalance {
+  block_num: number;
+  last_balance_update: string;
+  contract: string;
+  amount: string;
+  value: number;
+  name: string;
+  symbol: string;
+  decimals: number;
+  network_id: string;
+}
+
 export interface WalletData {
   address: string;
   balance: string;
+  totalValueUSD: number;
+  tokenBalances: TokenBalance[];
   transactionCount: number;
-  lastTransaction?: Transaction;
-  tokenBalances?: Array<{
-    address: string;
-    balance: string;
-    symbol: string;
-    decimals: number;
-  }>;
+  lastTransaction?: Transaction | null;
 }
 
 export interface Transaction {
-  transaction_id: string;
-  from: string;
-  to: string;
-  value: string;
+  block_num: number;
   datetime: string;
   timestamp: number;
-  blockNumber?: number;
-  gasUsed?: string;
-  gasPrice?: string;
-  symbol?: string;
-  decimals?: number;
+  transaction_id: string;
+  contract: string;
+  from: string;
+  to: string;
+  decimals: number;
+  symbol: string;
+  value: number;
 }
 
 // Graph Protocol Service for fetching wallet data
 export class GraphProtocolService {
+  private endpoint: string;
+  private jwtToken: string;
+
   constructor() {
-    // Initialize service
+    this.endpoint = 'https://token-api.thegraph.com';
+    this.jwtToken = "eyJhbGciOiJLTVNFUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE3OTQ4OTU2MTksImp0aSI6IjgwMjllZDg4LTY5ZWMtNDA2NC05OWFhLWFkNGY2ZDU0NWUwMiIsImlhdCI6MTc1ODg5NTYxOSwiaXNzIjoiZGZ1c2UuaW8iLCJzdWIiOiIwZGl6YTM4NWM5MmVhOTkzZGRhODIiLCJ2IjoyLCJha2kiOiIzMDVhZWZkNDE3YmJjNzgyNzAyY2FkN2IxMGViMzlkMTBlNTdiNWQ4MTU5M2ZkYTg2YWY4Yzk5YjljN2EwMDY0IiwidWlkIjoiMGRpemEzODVjOTJlYTk5M2RkYTgyIiwic3Vic3RyZWFtc19wbGFuX3RpZXIiOiJGUkVFIiwiY2ZnIjp7IlNVQlNUUkVBTVNfTUFYX1JFUVVFU1RTIjoiMiIsIlNVQlNUUkVBTVNfUEFSQUxMRUxfSk9CUyI6IjUiLCJTVUJTVFJFQU1TX1BBUkFMTEVMX1dPUktFUlMiOiI1In19.-BBfME1q4KdqXs4tmFstcwfJYDPxvT1Zl4RMfVlh29jDbzQHNIJA3OhT7NQsMDwNVEn0POHCHWHdpfCrOrgGHA"
+    if (!this.jwtToken) {
+      throw new Error('GRAPH_API_TOKEN is not set in .env');
+    }
   }
 
-  async getWalletData(address: string): Promise<WalletData> {
-    // Mock implementation - replace with actual Graph Protocol API calls
+  /**
+   * Executes a GET request to The Graph Token API
+   */
+  private async executeGetRequest(path: string, params: Record<string, any> = {}): Promise<any> {
+    try {
+      const response = await axios.get(`${this.endpoint}${path}`, {
+        params,
+        headers: {
+          Authorization: `Bearer ${this.jwtToken}`,
+        },
+      });
+      return response.data;
+    } catch (error) {
+      console.error('Token API error:', error);
+      throw new Error(`Failed to execute request: ${error}`);
+    }
+  }
+
+  /**
+   * Gets wallet data including balances and transactions
+   */
+  async getWalletData(address: string, networkId: string = 'mainnet'): Promise<WalletData> {
+    // Get current balances
+    const balancesPath = `/balances/evm/${address}`;
+    const balancesParams = { network_id: networkId, limit: 100 };
+    const balancesResponse = await this.executeGetRequest(balancesPath, balancesParams);
+
+    // Get recent transactions
+    const transactionsPath = '/transfers/evm';
+    const transactionsParams = {
+      network_id: networkId,
+      from: address,
+      limit: 1,
+      orderBy: 'timestamp',
+      orderDirection: 'desc'
+    };
+    const transactionsResponse = await this.executeGetRequest(transactionsPath, transactionsParams);
+
+    // Calculate total value
+    const tokenBalances: TokenBalance[] = balancesResponse.data || [];
+    const totalValueUSD = tokenBalances.reduce((sum: number, token: TokenBalance) => sum + token.value, 0);
+
+    // Get last transaction if available
+    const lastTransaction = transactionsResponse.data?.[0] || null;
+
     return {
       address,
-      balance: "0",
-      transactionCount: 0,
+      balance: tokenBalances.find(t => t.contract === '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee')?.amount || '0',
+      totalValueUSD,
+      tokenBalances,
+      transactionCount: tokenBalances.length,
+      lastTransaction
     };
   }
 
-  async getWalletTransactions(address: string, network: string, limit: number): Promise<Transaction[]> {
-    // Mock implementation - replace with actual Graph Protocol API calls
-    return [];
+  /**
+   * Gets wallet transactions
+   */
+  async getWalletTransactions(address: string, networkId: string = 'mainnet', limit: number = 10): Promise<Transaction[]> {
+    const path = '/transfers/evm';
+    const params = {
+      network_id: networkId,
+      from: address,
+      limit,
+      orderBy: 'timestamp',
+      orderDirection: 'desc'
+    };
+    const response = await this.executeGetRequest(path, params);
+    return response.data || [];
   }
 
+  /**
+   * Monitors wallet for new transactions (polling-based)
+   */
   async startWalletMonitoring(
     address: string,
     callback: (transaction: Transaction) => void,
-    intervalMs: number
-  ): Promise<void> {
-    // Mock implementation - replace with actual monitoring logic
-    console.log(`Starting monitoring for ${address} with interval ${intervalMs}ms`);
+    intervalMs: number = 30000,
+    networkId: string = 'mainnet'
+  ): Promise<NodeJS.Timeout> {
+    let lastTransactionId: string | null = null;
+
+    const checkForNewTransactions = async () => {
+      try {
+        const transactions = await this.getWalletTransactions(address, networkId, 1);
+        if (transactions.length > 0) {
+          const latestTransaction = transactions[0];
+          if (latestTransaction && (!lastTransactionId || latestTransaction.transaction_id !== lastTransactionId)) {
+            callback(latestTransaction);
+            lastTransactionId = latestTransaction.transaction_id;
+          }
+        }
+      } catch (error) {
+        console.error('Error monitoring wallet:', error);
+      }
+    };
+
+    console.log(`Starting wallet monitoring for ${address} (${networkId}) with ${intervalMs}ms interval`);
+    return setInterval(checkForNewTransactions, intervalMs);
   }
 }
 
@@ -65,7 +157,7 @@ export interface WalletMonitor {
   walletData: WalletData | null;
   isMonitoring: boolean;
   lastUpdated: Date;
-  monitoringInterval?: NodeJS.Timeout;
+  monitoringInterval?: NodeJS.Timeout | undefined;
 }
 
 // Wallet monitoring service
@@ -166,8 +258,8 @@ export class WalletMonitorService {
       }
     };
 
-    // Start monitoring
-    await this.graphProtocolService.startWalletMonitoring(
+    // Start monitoring and store the interval ID
+    walletMonitor.monitoringInterval = await this.graphProtocolService.startWalletMonitoring(
       walletAddress,
       transactionCallback,
       intervalMs
@@ -195,6 +287,7 @@ export class WalletMonitorService {
     // Clear monitoring interval if exists
     if (walletMonitor.monitoringInterval) {
       clearInterval(walletMonitor.monitoringInterval);
+      walletMonitor.monitoringInterval = undefined;
     }
 
     walletMonitor.isMonitoring = false;

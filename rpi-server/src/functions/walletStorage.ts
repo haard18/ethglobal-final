@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import { type WalletInfo } from './walletCreation.js';
+import { type WalletInfo } from './walletCreation.ts';
 
 // Define a consistent path for wallet storage
 const WALLET_STORAGE_DIR = path.join(process.cwd(), 'wallet-storage');
