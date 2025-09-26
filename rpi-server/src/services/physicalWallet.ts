@@ -1,4 +1,4 @@
-import { EthereumWalletGenerator, type WalletInfo } from '../wallet/index.js';
+import { EthereumWalletGenerator, type WalletInfo } from '../functions/walletCreation.js';
 import { TokenAPIService, type WalletData, type Transaction } from '../graph/tokenApi.js';
 
 export interface PhysicalWallet {
