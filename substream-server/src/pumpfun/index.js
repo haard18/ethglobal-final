@@ -190,8 +190,43 @@ const processPumpfunEventFromTransaction = async (event, signature, eventIndex, 
       const actualEvent = event.event;
       console.log(`Processing nested event with keys:`, Object.keys(actualEvent));
       
-      // Check if this is a SwapEvent
-      if (actualEvent.swapEvent || actualEvent.swap_event) {
+      // Check if this is a protobuf oneof with case/value structure
+      if (actualEvent.case && actualEvent.value) {
+        console.log(`Found protobuf oneof - case: ${actualEvent.case}`);
+        
+        switch (actualEvent.case) {
+          case 'swap':
+          case 'swapEvent':
+          case 'swap_event':
+            eventType = 'swap';
+            eventData = await processSwapEvent(actualEvent.value, signature, eventIndex, blockNumber, blockHash, blockTimestamp);
+            break;
+          case 'create':
+          case 'createEvent':
+          case 'create_event':
+            eventType = 'create';
+            eventData = await processCreateEvent(actualEvent.value, signature, eventIndex, blockNumber, blockHash, blockTimestamp);
+            break;
+          case 'transfer':
+          case 'transferEvent':
+          case 'transfer_event':
+            eventType = 'transfer';
+            eventData = await processTransferEvent(actualEvent.value, signature, eventIndex, blockNumber, blockHash, blockTimestamp);
+            break;
+          case 'trade':
+          case 'tradeEvent':
+          case 'trade_event':
+            eventType = 'trade';
+            eventData = await processSwapEvent(actualEvent.value, signature, eventIndex, blockNumber, blockHash, blockTimestamp);
+            break;
+          default:
+            console.log(`Unknown protobuf case: ${actualEvent.case} - processing as generic event`);
+            eventData = await processGenericEvent(actualEvent.value, signature, eventIndex, blockNumber, blockHash, blockTimestamp);
+            break;
+        }
+      }
+      // Check if this is a SwapEvent (direct structure)
+      else if (actualEvent.swapEvent || actualEvent.swap_event) {
         eventType = 'swap';
         const swapEvent = actualEvent.swapEvent || actualEvent.swap_event;
         eventData = await processSwapEvent(swapEvent, signature, eventIndex, blockNumber, blockHash, blockTimestamp);
@@ -243,12 +278,29 @@ const processPumpfunEventFromTransaction = async (event, signature, eventIndex, 
 // Function to process SwapEvent according to protobuf schema
 const processSwapEvent = async (swapEvent, signature, eventIndex, blockNumber, blockHash, blockTimestamp) => {
   try {
-    const user = swapEvent.user || '';
-    const mint = swapEvent.mint || '';
-    const bondingCurve = swapEvent.bondingCurve || swapEvent.bonding_curve || '';
-    const solAmount = swapEvent.solAmount || swapEvent.sol_amount || '0';
-    const tokenAmount = swapEvent.tokenAmount || swapEvent.token_amount || '0';
-    const direction = swapEvent.direction || 'unknown'; // 'buy' or 'sell'
+    // Helper function to safely extract string values
+    const safeString = (value) => {
+      if (!value) return '';
+      if (typeof value === 'string') return value;
+      if (typeof value === 'object' && value.toString) return value.toString();
+      return String(value);
+    };
+    
+    // Helper function to safely extract numeric values
+    const safeNumber = (value) => {
+      if (!value) return '0';
+      if (typeof value === 'number') return value.toString();
+      if (typeof value === 'string') return value;
+      if (typeof value === 'object' && value.value) return safeNumber(value.value);
+      return '0';
+    };
+    
+    const user = safeString(swapEvent.user || '');
+    const mint = safeString(swapEvent.mint || '');
+    const bondingCurve = safeString(swapEvent.bondingCurve || swapEvent.bonding_curve || '');
+    const solAmount = safeNumber(swapEvent.solAmount || swapEvent.sol_amount || '0');
+    const tokenAmount = safeNumber(swapEvent.tokenAmount || swapEvent.token_amount || '0');
+    const direction = safeString(swapEvent.direction || 'unknown'); // 'buy' or 'sell'
     
     const eventData = {
       eventType: `swap_${direction}`,
@@ -264,11 +316,11 @@ const processSwapEvent = async (swapEvent, signature, eventIndex, blockNumber, b
       metadata: {
         bondingCurve: bondingCurve,
         direction: direction,
-        virtualSolReserves: (swapEvent.virtualSolReserves || swapEvent.virtual_sol_reserves || '0').toString(),
-        virtualTokenReserves: (swapEvent.virtualTokenReserves || swapEvent.virtual_token_reserves || '0').toString(),
-        realSolReserves: (swapEvent.realSolReserves || swapEvent.real_sol_reserves || '0').toString(),
-        realTokenReserves: (swapEvent.realTokenReserves || swapEvent.real_token_reserves || '0').toString(),
-        userTokenPreBalance: (swapEvent.userTokenPreBalance || swapEvent.user_token_pre_balance || '0').toString(),
+        virtualSolReserves: safeNumber(swapEvent.virtualSolReserves || swapEvent.virtual_sol_reserves || '0'),
+        virtualTokenReserves: safeNumber(swapEvent.virtualTokenReserves || swapEvent.virtual_token_reserves || '0'),
+        realSolReserves: safeNumber(swapEvent.realSolReserves || swapEvent.real_sol_reserves || '0'),
+        realTokenReserves: safeNumber(swapEvent.realTokenReserves || swapEvent.real_token_reserves || '0'),
+        userTokenPreBalance: safeNumber(swapEvent.userTokenPreBalance || swapEvent.user_token_pre_balance || '0'),
         eventType: 'swap'
       }
     };
@@ -363,11 +415,39 @@ const processGenericEvent = async (eventObj, signature, eventIndex, blockNumber,
       return null;
     };
     
-    const tokenAddress = findField(eventObj, possibleTokenFields) || 'unknown';
-    const user = findField(eventObj, possibleUserFields) || 'unknown';
-    const amount = findField(eventObj, possibleAmountFields) || '0';
-    const solAmount = findField(eventObj, possibleSolFields) || '0';
-    const direction = findField(eventObj, possibleDirectionFields) || 'unknown';
+    // Helper function to safely convert values to strings/numbers
+    const safeToString = (value) => {
+      if (value === null || value === undefined) return 'unknown';
+      if (typeof value === 'string') return value;
+      if (typeof value === 'number') return value.toString();
+      if (typeof value === 'object') {
+        // If it's an object, try to extract useful info or stringify
+        if (value.toString && typeof value.toString === 'function' && value.toString() !== '[object Object]') {
+          return value.toString();
+        }
+        return JSON.stringify(value);
+      }
+      return String(value);
+    };
+    
+    const safeToNumber = (value) => {
+      if (value === null || value === undefined) return '0';
+      if (typeof value === 'number') return value.toString();
+      if (typeof value === 'string' && !isNaN(value) && value.trim() !== '') return value;
+      if (typeof value === 'object') {
+        // Try to extract numeric value from object
+        if (value.value !== undefined) return safeToNumber(value.value);
+        if (value.amount !== undefined) return safeToNumber(value.amount);
+        return '0';
+      }
+      return '0';
+    };
+    
+    const tokenAddress = safeToString(findField(eventObj, possibleTokenFields) || 'unknown');
+    const user = safeToString(findField(eventObj, possibleUserFields) || 'unknown');
+    const amount = safeToNumber(findField(eventObj, possibleAmountFields) || '0');
+    const solAmount = safeToNumber(findField(eventObj, possibleSolFields) || '0');
+    const direction = safeToString(findField(eventObj, possibleDirectionFields) || 'unknown');
     
     // Determine event type based on available data
     let eventType = 'generic';
