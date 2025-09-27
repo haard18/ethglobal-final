@@ -234,7 +234,22 @@ class APIEmotionalDisplay:
             # Use a reasonable font size for the display
             from PIL import ImageFont
             try:
-                font = ImageFont.truetype("/System/Library/Fonts/Arial.ttf", 10)
+                # Try different font paths for different systems
+                font_paths = [
+                    "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",  # Linux
+                    "/System/Library/Fonts/Arial.ttf",  # macOS
+                    "/Windows/Fonts/arial.ttf",  # Windows
+                ]
+                font = None
+                for font_path in font_paths:
+                    try:
+                        font = ImageFont.truetype(font_path, 10)
+                        break
+                    except:
+                        continue
+                
+                if font is None:
+                    font = ImageFont.load_default()
             except:
                 font = ImageFont.load_default()
         except:
@@ -249,16 +264,25 @@ class APIEmotionalDisplay:
         # Calculate text positioning
         line_height = 12
         total_text_height = len(lines) * line_height
-        start_y = max(5, (self.height - total_text_height) // 2)
+        start_y = max(16, (self.height - total_text_height) // 2)  # Leave more space at top
         
-        # Draw emotion indicator at top
-        emotion_text = f"😊 {emotion.upper()}"
-        draw.text((2, 2), emotion_text, fill="white", font=font)
+        # Draw emotion indicator at top (without emoji to avoid encoding issues)
+        emotion_text = f"[{emotion.upper()}]"
+        try:
+            draw.text((2, 2), emotion_text, fill="white", font=font)
+        except (UnicodeEncodeError, UnicodeDecodeError):
+            # Fallback without special characters
+            draw.text((2, 2), emotion.upper(), fill="white", font=font)
         
         # Draw main text
         for i, line in enumerate(lines):
             if start_y + i * line_height < self.height - line_height:
-                draw.text((2, start_y + i * line_height), line, fill="white", font=font)
+                try:
+                    draw.text((2, start_y + i * line_height), line, fill="white", font=font)
+                except (UnicodeEncodeError, UnicodeDecodeError):
+                    # Fallback: filter out problematic characters
+                    safe_line = ''.join(char for char in line if ord(char) < 256)
+                    draw.text((2, start_y + i * line_height), safe_line, fill="white", font=font)
 
     def set_emotion(self, emotion):
         """Set target emotion for smooth transition."""
