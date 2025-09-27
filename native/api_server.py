@@ -89,26 +89,21 @@ class APIEmotionalDisplay:
         }
 
     def draw_wave(self, draw):
-        """Draw a fast, reactive wave animation for listening mode."""
+        """Draw a compressed, randomized waveform (voice memo style)."""
         mid_y = self.height // 2
-        wavelength = 10   # shrink wave
-        max_amplitude = 10
+        bar_width = 4           # width of each bar
+        spacing = 2             # space between bars
+        num_bars = self.width // (bar_width + spacing)
 
-        # Random amplitude variation each frame
-        amplitude = random.randint(4, max_amplitude)
+        for i in range(num_bars):
+            # Random bar height for "listening energy"
+            bar_height = random.randint(4, self.height // 2)
+            top_y = mid_y - bar_height // 2
+            bottom_y = mid_y + bar_height // 2
+            x = i * (bar_width + spacing)
 
-        points = []
-        for x in range(0, self.width, 2):
-            y = int(mid_y + amplitude * math.sin((x / wavelength) + self.wave_phase))
-            points.append((x, y))
+            draw.rectangle([x, top_y, x + bar_width, bottom_y], fill="white")
 
-        if len(points) > 1:
-            draw.line(points, fill="white", width=2)
-
-        # Faster phase shift
-        self.wave_phase += 0.6
-        if self.wave_phase > 2 * math.pi:
-            self.wave_phase -= 2 * math.pi
 
 
     def show_text_with_emotion(self, text, emotion="normal", duration=10):
