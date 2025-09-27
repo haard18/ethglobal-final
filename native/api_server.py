@@ -110,8 +110,8 @@ class APIEmotionalDisplay:
                 if datetime.now() >= self.text_display_until:
                     self.display_mode = "eyes"
                     self.text_display_until = None
-                    self.set_emotion("normal")
-                    print("👀 Switching back to eyes mode")
+                    # Keep the current emotion instead of resetting to normal
+                    print(f"👀 Switching back to eyes mode with emotion: {self.current_emotion}")
 
         # Calculate interpolation factor with easing
         base_lerp = self.lerp_speed
@@ -243,7 +243,7 @@ class APIEmotionalDisplay:
                 font = None
                 for font_path in font_paths:
                     try:
-                        font = ImageFont.truetype(font_path, 10)
+                        font = ImageFont.truetype(font_path, 14)  # Increased from 10 to 14
                         break
                     except:
                         continue
@@ -256,15 +256,15 @@ class APIEmotionalDisplay:
             font = None
 
         # Word wrap the text
-        char_width = 6  # Approximate character width
+        char_width = 8  # Increased from 6 to 8 for bigger font
         max_chars_per_line = self.width // char_width
         wrapped_text = textwrap.fill(text, width=max_chars_per_line)
         lines = wrapped_text.split('\n')
         
         # Calculate text positioning
-        line_height = 12
+        line_height = 16  # Increased from 12 to 16 for bigger font
         total_text_height = len(lines) * line_height
-        start_y = max(16, (self.height - total_text_height) // 2)  # Leave more space at top
+        start_y = max(20, (self.height - total_text_height) // 2)  # Leave more space at top
         
         # Draw emotion indicator at top (without emoji to avoid encoding issues)
         emotion_text = f"[{emotion.upper()}]"
