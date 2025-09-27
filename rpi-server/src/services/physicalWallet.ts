@@ -405,8 +405,8 @@ export class PhysicalWalletService {
     /**
      * Get stored wallet address
      */
-    async getStoredWalletAddress(): Promise<string | null> {
-        return await WalletStorageService.getWalletAddress();
+    getStoredWalletAddress(): string | null {
+        return WalletStorageService.getWalletAddressSync();
     }
 
     /**

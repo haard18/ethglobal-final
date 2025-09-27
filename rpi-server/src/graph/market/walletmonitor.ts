@@ -174,7 +174,7 @@ export class WalletMonitorService {
    */
   public async initialize(): Promise<void> {
     console.log('🔍 Initializing wallet monitor service...');
-    const storedWallet = WalletStorageService.loadWallet();
+    const storedWallet = await WalletStorageService.loadWallet();
     if (storedWallet) {
       await this.addWalletToMonitor(storedWallet.walletInfo);
     } else {
@@ -186,6 +186,16 @@ export class WalletMonitorService {
    * Add a wallet to the monitoring service
    */
   public async addWalletToMonitor(walletInfo: WalletInfo): Promise<WalletMonitor> {
+    // Validate wallet info
+    if (!walletInfo || !walletInfo.address) {
+      throw new Error('Invalid wallet info: address is required');
+    }
+    
+    // Validate Ethereum address format
+    if (!/^0x[a-fA-F0-9]{40}$/.test(walletInfo.address)) {
+      throw new Error(`Invalid Ethereum address format: ${walletInfo.address}`);
+    }
+    
     const walletAddress = walletInfo.address.toLowerCase();
 
     // Skip if already monitoring

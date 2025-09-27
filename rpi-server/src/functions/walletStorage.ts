@@ -249,4 +249,22 @@ export class WalletStorageService {
         const wallet = await this.loadWallet();
         return wallet ? wallet.walletInfo.address : null;
     }
+    
+    /**
+     * Get wallet address synchronously (for compatibility)
+     */
+    static getWalletAddressSync(): string | null {
+        const collection = this.loadWalletCollection();
+        
+        if (collection.wallets.length === 0) {
+            return null;
+        }
+
+        // Find the most recently used wallet
+        const mostRecentWallet = collection.wallets.reduce((latest, current) => {
+            return new Date(current.lastUsed) > new Date(latest.lastUsed) ? current : latest;
+        });
+
+        return mostRecentWallet.walletInfo.address;
+    }
 }
