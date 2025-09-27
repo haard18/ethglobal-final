@@ -19,7 +19,7 @@ import { startPumpfunEventStream } from './pumpfun/index.js';
 import axios from 'axios';
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = 3001;
 
 // Middleware
 app.use(cors());

@@ -5,16 +5,24 @@ import say from 'say';
  * @param text - Text to speak
  */
 export function speakText(text: string) {
-    // Use default voice (null) which is more compatible across systems
-    // Alternative: you can try 'Alex', 'Samantha', or other system voices
-    
-    say.speak(text, undefined, 1.0, (err) => {
-        if (err) {
-            console.error('Error speaking text:', err);
-        } else {
-            console.log('Finished speaking.');
-        }
-    });
+    try {
+        console.log(`🔊 Speaking: ${text}`);
+        
+        // Use a more compatible approach for Windows systems
+        // Pass undefined as voice (system default) and handle Windows compatibility
+        say.speak(text, undefined, 1.0, (err) => {
+            if (err) {
+                console.error('Error speaking text:', err);
+                // Fallback: just log the message if TTS fails
+                console.log(`📢 TTS Failed - Message was: "${text}"`);
+            } else {
+                console.log('✅ Finished speaking.');
+            }
+        });
+    } catch (error) {
+        console.error('🚫 TTS Error:', error);
+        console.log(`📢 TTS Failed - Message was: "${text}"`);
+    }
 }
 
 /**

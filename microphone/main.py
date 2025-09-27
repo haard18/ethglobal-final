@@ -598,30 +598,111 @@ def main():
 
 if __name__ == "__main__":
     import requests
+    import json
+    
     audio = AudioInput()
-    print("Say 'Hey Pluto' to wake the assistant.")
+    print("🎤 Pluto Voice Assistant - Wallet Integration Active")
+    print("💰 Connected to RPI server at http://localhost:3000")
+    print("🔊 Say 'Hey Pluto' to wake the assistant.")
+    print("\n💡 Try these wallet commands:")
+    print("  • 'create wallet' or 'generate new wallet'")
+    print("  • 'what is my wallet' or 'show my wallets'") 
+    print("  • 'check my balance' or 'what's my balance'")
+    print("  • 'what is the price of ethereum'")
+    print("  • 'show my portfolio value'")
+    print("=" * 60)
+    
     while True:
         try:
             # Enhanced wake word detection - will detect all variations
             woke = audio.listen_for_wake_word(["hey pluto"])
             if woke:
-                print("Wake word detected! Start speaking...")
+                print("\n🟢 Wake word detected! Start speaking...")
                 audio_data = audio.listen_until_silence()
                 text = audio.transcribe(audio_data)
+                
                 if text:
-                    print(f"You said: {text}")
-                    url = "http://localhost:3000/"  # Your API endpoint
-                    payload = {"text": text}
-                    try:
-                        response = requests.post(url, json=payload)
-                        print(f"API response: {response.text}")
-                    except Exception as api_err:
-                        print(f"API call failed: {api_err}")
+                    print(f"👤 You said: {text}")
+                    
+                    # Check for exit commands first
                     if any(exit_word in text.lower() for exit_word in ['exit', 'quit', 'goodbye', 'stop']):
-                        print("Exiting...")
+                        print("👋 Exiting Pluto Assistant...")
                         break
-                # After response, immediately go back to listening for wake word
-                # If text is None, don't print anything, just keep listening
+                    
+                    try:
+                        # Send to RPI server API
+                        url = "http://localhost:3000/"
+                        payload = {"text": text}
+                        
+                        print("🔄 Processing with Pluto AI...")
+                        response = requests.post(url, json=payload, timeout=30)
+                        
+                        if response.status_code == 200:
+                            result = response.json()
+                            
+                            if result.get('success'):
+                                pluto_response = result.get('pluto_response', 'I processed your request.')
+                                print(f"🤖 Pluto: {pluto_response}")
+                                
+                                # Show additional info if available
+                                if 'action_performed' in result:
+                                    action = result['action_performed']
+                                    print(f"✅ Action: {action}")
+                                    
+                                    # Show wallet info if created
+                                    if action == 'CREATE_WALLET' and 'wallet' in result:
+                                        wallet = result['wallet']
+                                        print(f"🏦 New Wallet Address: {wallet['address']}")
+                                        print("💡 Your wallet details have been saved securely.")
+                                    
+                                    # Show balance info
+                                    elif action == 'GET_WALLET_BALANCE' and 'balance_data' in result:
+                                        balance_data = result['balance_data']
+                                        if balance_data:
+                                            print("💰 Balance Information:")
+                                            for wallet_balance in balance_data:
+                                                address = wallet_balance.get('address', 'Unknown')[:10] + "..."
+                                                eth_balance = wallet_balance.get('eth_balance', '0')
+                                                print(f"  📍 {address}: {eth_balance} ETH")
+                                    
+                                    # Show token price info
+                                    elif action == 'GET_TOKEN_PRICE' and 'token_data' in result:
+                                        token_data = result['token_data']
+                                        if token_data:
+                                            symbol = token_data.get('symbol', 'Token')
+                                            price = token_data.get('price_usd', 'N/A')
+                                            print(f"💲 {symbol} Price: ${price}")
+                                
+                            else:
+                                error_msg = result.get('message', 'Unknown error occurred')
+                                print(f"❌ Error: {error_msg}")
+                        
+                        else:
+                            print(f"❌ Server error: {response.status_code}")
+                            print("🔧 Make sure the RPI server is running on http://localhost:3000")
+                    
+                    except requests.exceptions.ConnectionError:
+                        print("❌ Connection failed: RPI server not responding")
+                        print("🔧 Please start the RPI server: npm run dev")
+                        print("💡 Falling back to basic response...")
+                        print(f"🤖 I heard: '{text}' but couldn't process it right now.")
+                    
+                    except requests.exceptions.Timeout:
+                        print("⏰ Request timed out - server is taking too long to respond")
+                        
+                    except Exception as api_err:
+                        print(f"❌ API call failed: {api_err}")
+                        print(f"🤖 I heard: '{text}' but encountered an error processing it.")
+                
+                else:
+                    print("🔇 Didn't catch that clearly. Try speaking again...")
+                
+                print("-" * 40)
+                print("🎤 Listening for 'Hey Pluto'...")
+                
         except KeyboardInterrupt:
-            print("\nSession ended by user.")
+            print("\n👋 Session ended by user.")
             break
+        except Exception as e:
+            print(f"❌ Unexpected error: {e}")
+            print("🔄 Restarting voice detection...")
