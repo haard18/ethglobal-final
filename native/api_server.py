@@ -88,11 +88,14 @@ class APIEmotionalDisplay:
             "wave" : {}
         }
 
-    def draw_wave(self, draw):  # NEW
-        """Draw a sine wave animation for listening mode."""
+    def draw_wave(self, draw):
+        """Draw a fast, reactive wave animation for listening mode."""
         mid_y = self.height // 2
-        amplitude = 15
-        wavelength = 20
+        wavelength = 10   # shrink wave
+        max_amplitude = 10
+
+        # Random amplitude variation each frame
+        amplitude = random.randint(4, max_amplitude)
 
         points = []
         for x in range(0, self.width, 2):
@@ -102,10 +105,11 @@ class APIEmotionalDisplay:
         if len(points) > 1:
             draw.line(points, fill="white", width=2)
 
-        # Update phase for animation
-        self.wave_phase += self.wave_speed
+        # Faster phase shift
+        self.wave_phase += 0.6
         if self.wave_phase > 2 * math.pi:
             self.wave_phase -= 2 * math.pi
+
 
     def show_text_with_emotion(self, text, emotion="normal", duration=10):
         """API method to show text with emotion for specified duration."""
