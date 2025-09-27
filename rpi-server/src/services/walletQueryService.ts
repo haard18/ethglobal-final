@@ -577,4 +577,316 @@ export class WalletQueryService {
             };
         }
     }
+
+    /**
+     * Get comprehensive wallet activity with all transactions and interactions
+     */
+    async getWalletActivity(limit: number = 20, walletAddress?: string): Promise<WalletQueryResult> {
+        try {
+            const wallet = walletAddress ? 
+                this.physicalWalletService.getWallet(walletAddress) : 
+                this.getMainWallet();
+
+            if (!wallet) {
+                return {
+                    success: false,
+                    message: "Wallet not found",
+                    spokenMessage: "I couldn't find that wallet in your portfolio",
+                    error: "Wallet not found"
+                };
+            }
+
+            // Fetch comprehensive transaction data
+            const [walletData, recentTransactions] = await Promise.all([
+                this.graphProtocolService.getWalletData(wallet.walletInfo.address),
+                this.graphProtocolService.getWalletTransactions(wallet.walletInfo.address, 'mainnet', limit)
+            ]);
+
+            if (!recentTransactions || recentTransactions.length === 0) {
+                return {
+                    success: true,
+                    message: "No recent activity found for your wallet",
+                    spokenMessage: "Your wallet shows no recent transaction activity",
+                    data: {
+                        walletAddress: wallet.walletInfo.address,
+                        totalTransactions: 0,
+                        transactions: [],
+                        activitySummary: {
+                            totalValue: walletData.totalValueUSD,
+                            transactionCount: 0,
+                            lastActivity: null,
+                            activityLevel: 'None'
+                        }
+                    }
+                };
+            }
+
+            // Analyze transaction patterns
+            const now = Date.now();
+            const oneDayAgo = now - (24 * 60 * 60 * 1000);
+            const oneWeekAgo = now - (7 * 24 * 60 * 60 * 1000);
+
+            const recentActivity = recentTransactions.filter(tx => 
+                tx.timestamp && (tx.timestamp * 1000) > oneDayAgo
+            );
+
+            const weeklyActivity = recentTransactions.filter(tx => 
+                tx.timestamp && (tx.timestamp * 1000) > oneWeekAgo
+            );
+
+            // Calculate activity metrics
+            const totalTransactionValue = recentTransactions.reduce((sum, tx) => sum + (tx.value || 0), 0);
+            const uniqueTokens = [...new Set(recentTransactions.map(tx => tx.symbol))].filter(Boolean);
+            const incomingTxs = recentTransactions.filter(tx => tx.to?.toLowerCase() === wallet.walletInfo.address.toLowerCase());
+            const outgoingTxs = recentTransactions.filter(tx => tx.from?.toLowerCase() === wallet.walletInfo.address.toLowerCase());
+
+            // Determine activity level
+            let activityLevel = 'Low';
+            if (recentActivity.length > 5) activityLevel = 'Very High';
+            else if (recentActivity.length > 2) activityLevel = 'High';
+            else if (weeklyActivity.length > 3) activityLevel = 'Medium';
+
+            // Format transactions for display
+            const formattedTransactions = recentTransactions.map(tx => {
+                const isIncoming = tx.to?.toLowerCase() === wallet.walletInfo.address.toLowerCase();
+                const transactionDate = tx.timestamp ? new Date(tx.timestamp * 1000) : new Date(tx.datetime || Date.now());
+                
+                return {
+                    id: tx.transaction_id,
+                    type: isIncoming ? 'Received' : 'Sent',
+                    symbol: tx.symbol || 'ETH',
+                    amount: tx.value?.toFixed(6) || '0',
+                    valueUSD: tx.value || 0,
+                    from: tx.from,
+                    to: tx.to,
+                    date: transactionDate.toISOString(),
+                    timeAgo: this.formatTimeAgo(transactionDate),
+                    blockNumber: tx.block_num,
+                    isIncoming
+                };
+            });
+
+            // Create comprehensive activity summary
+            const activitySummary = {
+                totalValue: walletData.totalValueUSD,
+                transactionCount: recentTransactions.length,
+                recentTransactions: recentActivity.length,
+                weeklyTransactions: weeklyActivity.length,
+                totalTransactionValue: totalTransactionValue,
+                uniqueTokensTraded: uniqueTokens.length,
+                incomingCount: incomingTxs.length,
+                outgoingCount: outgoingTxs.length,
+                lastActivity: recentTransactions[0] ? new Date(recentTransactions[0].timestamp * 1000 || recentTransactions[0].datetime || Date.now()).toISOString() : null,
+                activityLevel,
+                activeTokens: uniqueTokens.slice(0, 5)
+            };
+
+            // Create detailed message
+            let message = `Wallet Activity Summary: ${recentTransactions.length} recent transactions `;
+            message += `(${recentActivity.length} today, ${weeklyActivity.length} this week). `;
+            message += `Activity level: ${activityLevel}. `;
+            message += `Total transaction value: $${totalTransactionValue.toFixed(2)} across ${uniqueTokens.length} different tokens. `;
+            message += `Balance: ${incomingTxs.length} incoming, ${outgoingTxs.length} outgoing transactions.`;
+
+            const spokenMessage = `Your wallet shows ${activityLevel.toLowerCase()} activity with ${recentTransactions.length} recent transactions. ` +
+                `You have ${recentActivity.length} transactions today and ${weeklyActivity.length} this week. ` +
+                `Your most recent activity was ${recentTransactions[0] ? this.formatTimeAgo(new Date(recentTransactions[0].timestamp * 1000 || recentTransactions[0].datetime || Date.now())) : 'unknown'}.`;
+
+            // Display activity on screen
+            try {
+                const displayText = `Activity: ${activityLevel}\n${recentTransactions.length} transactions\nLast: ${formattedTransactions[0]?.timeAgo || 'Unknown'}`;
+                await showDisplayMessage({
+                    text: displayText,
+                    emotion: activityLevel === 'Very High' ? 'excited' : 
+                            activityLevel === 'High' ? 'happy' :
+                            activityLevel === 'Medium' ? 'normal' : 'confused',
+                    duration: 12
+                });
+            } catch (displayError) {
+                console.warn('Display error:', displayError);
+            }
+
+            // Speak the activity summary
+            try {
+                await speakText(spokenMessage);
+            } catch (speechError) {
+                console.warn('Speech error:', speechError);
+            }
+
+            return {
+                success: true,
+                message,
+                spokenMessage,
+                data: {
+                    walletAddress: wallet.walletInfo.address,
+                    totalTransactions: recentTransactions.length,
+                    transactions: formattedTransactions,
+                    activitySummary,
+                    interactiveData: {
+                        canShowMore: recentTransactions.length >= limit,
+                        availableFilters: ['incoming', 'outgoing', 'by_token', 'by_date'],
+                        supportedCommands: [
+                            'show more transactions',
+                            'filter by token',
+                            'show only incoming',
+                            'show only outgoing',
+                            'show recent activity'
+                        ]
+                    }
+                }
+            };
+
+        } catch (error) {
+            // Show error on display
+            try {
+                await showDisplayMessage({
+                    text: 'Activity Query Failed\nCheck connection',
+                    emotion: 'confused',
+                    duration: 6
+                });
+            } catch (displayError) {
+                console.warn('Display error:', displayError);
+            }
+
+            return {
+                success: false,
+                message: "Failed to fetch wallet activity",
+                spokenMessage: "Sorry, I couldn't fetch your wallet activity right now",
+                error: error instanceof Error ? error.message : "Unknown error"
+            };
+        }
+    }
+
+    /**
+     * Get filtered wallet activity based on criteria
+     */
+    async getFilteredWalletActivity(
+        filter: 'incoming' | 'outgoing' | 'recent' | string, 
+        limit: number = 10,
+        walletAddress?: string
+    ): Promise<WalletQueryResult> {
+        try {
+            const wallet = walletAddress ? 
+                this.physicalWalletService.getWallet(walletAddress) : 
+                this.getMainWallet();
+
+            if (!wallet) {
+                return {
+                    success: false,
+                    message: "Wallet not found",
+                    spokenMessage: "I couldn't find that wallet in your portfolio",
+                    error: "Wallet not found"
+                };
+            }
+
+            const allTransactions = await this.graphProtocolService.getWalletTransactions(
+                wallet.walletInfo.address, 
+                'mainnet', 
+                50 // Get more to filter from
+            );
+
+            let filteredTransactions = allTransactions;
+            let filterDescription = '';
+
+            // Apply filters
+            switch (filter.toLowerCase()) {
+                case 'incoming':
+                    filteredTransactions = allTransactions.filter(tx => 
+                        tx.to?.toLowerCase() === wallet.walletInfo.address.toLowerCase()
+                    );
+                    filterDescription = 'incoming';
+                    break;
+                
+                case 'outgoing':
+                    filteredTransactions = allTransactions.filter(tx => 
+                        tx.from?.toLowerCase() === wallet.walletInfo.address.toLowerCase()
+                    );
+                    filterDescription = 'outgoing';
+                    break;
+                
+                case 'recent':
+                    const oneDayAgo = Date.now() - (24 * 60 * 60 * 1000);
+                    filteredTransactions = allTransactions.filter(tx => 
+                        tx.timestamp && (tx.timestamp * 1000) > oneDayAgo
+                    );
+                    filterDescription = 'recent (last 24 hours)';
+                    break;
+                
+                default:
+                    // Filter by token symbol
+                    filteredTransactions = allTransactions.filter(tx => 
+                        tx.symbol?.toLowerCase().includes(filter.toLowerCase())
+                    );
+                    filterDescription = `${filter} token transactions`;
+                    break;
+            }
+
+            // Limit results
+            filteredTransactions = filteredTransactions.slice(0, limit);
+
+            // Format transactions
+            const formattedTransactions = filteredTransactions.map(tx => {
+                const isIncoming = tx.to?.toLowerCase() === wallet.walletInfo.address.toLowerCase();
+                const transactionDate = tx.timestamp ? new Date(tx.timestamp * 1000) : new Date(tx.datetime || Date.now());
+                
+                return {
+                    id: tx.transaction_id,
+                    type: isIncoming ? 'Received' : 'Sent',
+                    symbol: tx.symbol || 'ETH',
+                    amount: tx.value?.toFixed(6) || '0',
+                    valueUSD: tx.value || 0,
+                    from: tx.from,
+                    to: tx.to,
+                    date: transactionDate.toISOString(),
+                    timeAgo: this.formatTimeAgo(transactionDate),
+                    blockNumber: tx.block_num,
+                    isIncoming
+                };
+            });
+
+            const totalValue = filteredTransactions.reduce((sum, tx) => sum + (tx.value || 0), 0);
+
+            const message = `Found ${filteredTransactions.length} ${filterDescription} transactions with total value $${totalValue.toFixed(2)} USD.`;
+            const spokenMessage = `Showing ${filteredTransactions.length} ${filterDescription} transactions worth ${totalValue.toFixed(0)} dollars.`;
+
+            return {
+                success: true,
+                message,
+                spokenMessage,
+                data: {
+                    walletAddress: wallet.walletInfo.address,
+                    filter: filterDescription,
+                    totalTransactions: filteredTransactions.length,
+                    totalValue,
+                    transactions: formattedTransactions,
+                    hasMore: allTransactions.length > filteredTransactions.length
+                }
+            };
+
+        } catch (error) {
+            return {
+                success: false,
+                message: "Failed to fetch filtered wallet activity",
+                spokenMessage: "Sorry, I couldn't filter your wallet activity right now",
+                error: error instanceof Error ? error.message : "Unknown error"
+            };
+        }
+    }
+
+    /**
+     * Helper method to format time ago
+     */
+    private formatTimeAgo(date: Date): string {
+        const now = new Date();
+        const diffMs = now.getTime() - date.getTime();
+        const diffMinutes = Math.floor(diffMs / (1000 * 60));
+        const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+        const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+
+        if (diffMinutes < 1) return 'just now';
+        if (diffMinutes < 60) return `${diffMinutes}m ago`;
+        if (diffHours < 24) return `${diffHours}h ago`;
+        if (diffDays < 7) return `${diffDays}d ago`;
+        return date.toLocaleDateString();
+    }
 }

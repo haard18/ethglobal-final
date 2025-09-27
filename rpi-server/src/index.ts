@@ -1196,9 +1196,56 @@ app.get("/query/search/:term", async (req: Request, res: Response) => {
     }
 });
 
-// ===== MARKET VALUE ENDPOINTS =====
+// Wallet activity endpoint
+app.get("/query/activity", async (req: Request, res: Response) => {
+    try {
+        const limit = parseInt(req.query.limit as string) || 20;
+        const result = await walletQueryService.getWalletActivity(limit);
+        res.json({
+            success: result.success,
+            message: result.message,
+            data: result.data,
+            timestamp: new Date().toISOString()
+        });
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            error: "Failed to get wallet activity",
+            message: error instanceof Error ? error.message : "Unknown error"
+        });
+    }
+});
 
-// Get specific coin/token market data for a wallet
+// Filtered wallet activity endpoint
+app.get("/query/activity/:filter", async (req: Request, res: Response) => {
+    try {
+        const { filter } = req.params;
+        const limit = parseInt(req.query.limit as string) || 10;
+        
+        if (!filter) {
+            return res.status(400).json({
+                success: false,
+                error: "Filter type is required (incoming/outgoing/recent/token_symbol)"
+            });
+        }
+        
+        const result = await walletQueryService.getFilteredWalletActivity(filter, limit);
+        res.json({
+            success: result.success,
+            message: result.message,
+            data: result.data,
+            timestamp: new Date().toISOString()
+        });
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            error: "Failed to get filtered wallet activity",
+            message: error instanceof Error ? error.message : "Unknown error"
+        });
+    }
+});
+
+
 app.get("/market/wallet/:address/coin/:coinSymbol", async (req: Request, res: Response) => {
     try {
         const { address, coinSymbol } = req.params;
@@ -1669,6 +1716,38 @@ app.post("/", async (req: Request, res: Response) => {
                         return res.status(500).json({
                             success: false,
                             error: "Failed to get wallet summary",
+                            message: error instanceof Error ? error.message : "Unknown error"
+                        });
+                    }
+
+                case 'GET_WALLET_ACTIVITY':
+                    try {
+                        const { limit, filter } = intentAnalysis.parameters || {};
+                        const transactionLimit = limit && !isNaN(parseInt(limit)) ? parseInt(limit) : 20;
+                        
+                        let result;
+                        if (filter && ['incoming', 'outgoing', 'recent'].includes(filter.toLowerCase())) {
+                            result = await walletQueryService.getFilteredWalletActivity(filter.toLowerCase(), transactionLimit);
+                        } else {
+                            result = await walletQueryService.getWalletActivity(transactionLimit);
+                        }
+                        
+                        speakText(result.spokenMessage);
+                        
+                        return res.json({
+                            success: result.success,
+                            user_input: text,
+                            action_performed: 'GET_WALLET_ACTIVITY',
+                            pluto_response: result.message,
+                            activity_data: result.data,
+                            timestamp: new Date().toISOString()
+                        });
+                    } catch (error) {
+                        const errorMessage = "Sorry, I couldn't fetch your wallet activity right now. Please try again.";
+                        speakText(errorMessage);
+                        return res.status(500).json({
+                            success: false,
+                            error: "Failed to get wallet activity",
                             message: error instanceof Error ? error.message : "Unknown error"
                         });
                     }

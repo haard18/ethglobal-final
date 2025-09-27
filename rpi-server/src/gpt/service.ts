@@ -3,7 +3,7 @@ import { gptConfig, validateConfig } from './config.js';
 
 export interface ActionableResponse {
   isAction: boolean;
-  action?: 'CREATE_WALLET' | 'IMPORT_WALLET_PRIVATE_KEY' | 'IMPORT_WALLET_MNEMONIC' | 'GET_WALLET_INFO' | 'MONITOR_WALLET' | 'GET_WALLET_TRANSACTIONS' | 'TRANSFER_ETH' | 'GET_WALLET_BALANCE' | 'GET_TOKEN_PRICE' | 'GET_PORTFOLIO_VALUE' | 'GET_TOKEN_HOLDINGS' | 'GET_WALLET_SUMMARY';
+  action?: 'CREATE_WALLET' | 'IMPORT_WALLET_PRIVATE_KEY' | 'IMPORT_WALLET_MNEMONIC' | 'GET_WALLET_INFO' | 'MONITOR_WALLET' | 'GET_WALLET_TRANSACTIONS' | 'GET_WALLET_ACTIVITY' | 'TRANSFER_ETH' | 'GET_WALLET_BALANCE' | 'GET_TOKEN_PRICE' | 'GET_PORTFOLIO_VALUE' | 'GET_TOKEN_HOLDINGS' | 'GET_WALLET_SUMMARY';
   parameters?: any;
   textResponse?: string;
 }
@@ -44,6 +44,7 @@ Available functions:
 - GET_PORTFOLIO_VALUE: Get complete portfolio breakdown and market values
 - GET_TOKEN_HOLDINGS: Get all token holdings with current values
 - GET_WALLET_SUMMARY: Get comprehensive wallet summary with balances and top holdings
+- GET_WALLET_ACTIVITY: Get wallet transaction activity and interaction history (transaction history, recent activity, what happened)
 - MONITOR_WALLET: Start monitoring a wallet for transactions
 - GET_WALLET_TRANSACTIONS: Retrieve wallet transaction history
 - TRANSFER_ETH: Transfer ETH to address or ENS name (requires amount and recipient)
@@ -59,11 +60,14 @@ IMPORTANT CONTEXT:
 - Market queries: "portfolio", "holdings", "tokens", "coins", "value", "price", "balance"
 - Token-specific queries: "USDC price", "ETH balance", "how much BTC", "WETH value"
 - Portfolio queries: "total value", "portfolio worth", "diversification", "top holdings"
+- Activity queries: "wallet activity", "recent transactions", "transaction history", "what happened", "activity", "transactions"
 
 PARAMETER EXTRACTION RULES:
 - Extract tokenSymbol from phrases like: "USDC price", "how much ETH", "BTC value", "my WETH"
 - Extract minValue from phrases like: "tokens worth over $100", "holdings above 50 dollars"
 - Extract searchTerm for general searches like: "stable coins", "tokens containing USD"
+- Extract limit for activity queries: "last 10 transactions", "recent 5 activities"  
+- Extract filter for activity: "incoming transactions", "outgoing only", "recent activity"
 
 Respond ONLY with a JSON object in this exact format:
 {
