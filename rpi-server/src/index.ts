@@ -2,6 +2,7 @@ import express, { type Request, type Response } from "express";
 import { gptService, type ActionableResponse } from "./gpt/service.js";
 import { PhysicalWalletService } from "./services/physicalWallet.js";
 import { TransferService } from "./services/transferService.js";
+import { WalletQueryService } from "./services/walletQueryService.js";
 import { speakText } from "./output/speak.js";
 import { GraphProtocolService, type TokenBalance, type WalletData, WalletMonitorService, type WalletMonitor } from "./graph/market/walletmonitor.ts";
 
@@ -14,6 +15,7 @@ const physicalWalletService = new PhysicalWalletService();
 const graphProtocolService = new GraphProtocolService();
 const walletMonitorService = new WalletMonitorService();
 const transferService = new TransferService(physicalWalletService);
+const walletQueryService = new WalletQueryService(physicalWalletService);
 
 // Middleware to parse JSON
 app.use(express.json());
@@ -1035,6 +1037,165 @@ app.delete("/monitor/wallet/:address", (req: Request, res: Response) => {
     }
 });
 
+// ===== WALLET QUERY SERVICE ENDPOINTS =====
+
+// Quick wallet balance endpoint
+app.get("/query/balance", async (req: Request, res: Response) => {
+    try {
+        const result = await walletQueryService.getWalletBalance();
+        res.json({
+            success: result.success,
+            message: result.message,
+            data: result.data,
+            timestamp: new Date().toISOString()
+        });
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            error: "Failed to get balance",
+            message: error instanceof Error ? error.message : "Unknown error"
+        });
+    }
+});
+
+// Quick token price endpoint
+app.get("/query/token/:symbol/price", async (req: Request, res: Response) => {
+    try {
+        const { symbol } = req.params;
+        if (!symbol) {
+            return res.status(400).json({
+                success: false,
+                error: "Token symbol is required"
+            });
+        }
+        const result = await walletQueryService.getTokenPrice(symbol);
+        res.json({
+            success: result.success,
+            message: result.message,
+            data: result.data,
+            timestamp: new Date().toISOString()
+        });
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            error: "Failed to get token price",
+            message: error instanceof Error ? error.message : "Unknown error"
+        });
+    }
+});
+
+// Quick portfolio value endpoint
+app.get("/query/portfolio", async (req: Request, res: Response) => {
+    try {
+        const result = await walletQueryService.getPortfolioValue();
+        res.json({
+            success: result.success,
+            message: result.message,
+            data: result.data,
+            timestamp: new Date().toISOString()
+        });
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            error: "Failed to get portfolio value",
+            message: error instanceof Error ? error.message : "Unknown error"
+        });
+    }
+});
+
+// Quick wallet summary endpoint
+app.get("/query/summary", async (req: Request, res: Response) => {
+    try {
+        const result = await walletQueryService.getWalletSummary();
+        res.json({
+            success: result.success,
+            message: result.message,
+            data: result.data,
+            timestamp: new Date().toISOString()
+        });
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            error: "Failed to get wallet summary",
+            message: error instanceof Error ? error.message : "Unknown error"
+        });
+    }
+});
+
+// Token holdings with filters
+app.get("/query/holdings", async (req: Request, res: Response) => {
+    try {
+        const { minValue, symbol } = req.query;
+        const params: any = {};
+        
+        if (minValue && !isNaN(parseFloat(minValue as string))) {
+            params.minValue = parseFloat(minValue as string);
+        }
+        if (symbol) {
+            params.symbol = symbol as string;
+        }
+        
+        const result = await walletQueryService.getTokenHoldings(params);
+        res.json({
+            success: result.success,
+            message: result.message,
+            data: result.data,
+            timestamp: new Date().toISOString()
+        });
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            error: "Failed to get token holdings",
+            message: error instanceof Error ? error.message : "Unknown error"
+        });
+    }
+});
+
+// Market insights endpoint
+app.get("/query/insights", async (req: Request, res: Response) => {
+    try {
+        const result = await walletQueryService.getMarketInsights();
+        res.json({
+            success: result.success,
+            message: result.message,
+            data: result.data,
+            timestamp: new Date().toISOString()
+        });
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            error: "Failed to get market insights",
+            message: error instanceof Error ? error.message : "Unknown error"
+        });
+    }
+});
+
+// Search tokens endpoint
+app.get("/query/search/:term", async (req: Request, res: Response) => {
+    try {
+        const { term } = req.params;
+        if (!term) {
+            return res.status(400).json({
+                success: false,
+                error: "Search term is required"
+            });
+        }
+        const result = await walletQueryService.searchTokens(term);
+        res.json({
+            success: result.success,
+            message: result.message,
+            data: result.data,
+            timestamp: new Date().toISOString()
+        });
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            error: "Failed to search tokens",
+            message: error instanceof Error ? error.message : "Unknown error"
+        });
+    }
+});
+
 // ===== MARKET VALUE ENDPOINTS =====
 
 // Get specific coin/token market data for a wallet
@@ -1374,6 +1535,143 @@ app.post("/", async (req: Request, res: Response) => {
                         })),
                         timestamp: new Date().toISOString()
                     });
+
+                case 'GET_WALLET_BALANCE':
+                    try {
+                        const result = await walletQueryService.getWalletBalance();
+                        speakText(result.spokenMessage);
+                        
+                        return res.json({
+                            success: result.success,
+                            user_input: text,
+                            action_performed: 'GET_WALLET_BALANCE',
+                            pluto_response: result.message,
+                            balance_data: result.data,
+                            timestamp: new Date().toISOString()
+                        });
+                    } catch (error) {
+                        const errorMessage = "Sorry, I couldn't fetch your balance right now. Please try again.";
+                        speakText(errorMessage);
+                        return res.status(500).json({
+                            success: false,
+                            error: "Failed to get balance",
+                            message: error instanceof Error ? error.message : "Unknown error"
+                        });
+                    }
+
+                case 'GET_TOKEN_PRICE':
+                    try {
+                        const { tokenSymbol } = intentAnalysis.parameters || {};
+                        if (!tokenSymbol) {
+                            const errorMessage = "Which token would you like me to check the price for?";
+                            speakText(errorMessage);
+                            return res.json({
+                                success: false,
+                                user_input: text,
+                                action_performed: 'GET_TOKEN_PRICE',
+                                pluto_response: errorMessage,
+                                timestamp: new Date().toISOString()
+                            });
+                        }
+
+                        const result = await walletQueryService.getTokenPrice(tokenSymbol);
+                        speakText(result.spokenMessage);
+                        
+                        return res.json({
+                            success: result.success,
+                            user_input: text,
+                            action_performed: 'GET_TOKEN_PRICE',
+                            pluto_response: result.message,
+                            token_data: result.data,
+                            timestamp: new Date().toISOString()
+                        });
+                    } catch (error) {
+                        const errorMessage = "Sorry, I couldn't fetch token price data right now. Please try again.";
+                        speakText(errorMessage);
+                        return res.status(500).json({
+                            success: false,
+                            error: "Failed to get token price",
+                            message: error instanceof Error ? error.message : "Unknown error"
+                        });
+                    }
+
+                case 'GET_PORTFOLIO_VALUE':
+                    try {
+                        const result = await walletQueryService.getPortfolioValue();
+                        speakText(result.spokenMessage);
+                        
+                        return res.json({
+                            success: result.success,
+                            user_input: text,
+                            action_performed: 'GET_PORTFOLIO_VALUE',
+                            pluto_response: result.message,
+                            portfolio_data: result.data,
+                            timestamp: new Date().toISOString()
+                        });
+                    } catch (error) {
+                        const errorMessage = "Sorry, I couldn't fetch your portfolio data right now. Please try again.";
+                        speakText(errorMessage);
+                        return res.status(500).json({
+                            success: false,
+                            error: "Failed to get portfolio value",
+                            message: error instanceof Error ? error.message : "Unknown error"
+                        });
+                    }
+
+                case 'GET_TOKEN_HOLDINGS':
+                    try {
+                        const { minValue, tokenSymbol } = intentAnalysis.parameters || {};
+                        const queryParams: any = {};
+                        if (minValue && !isNaN(parseFloat(minValue))) {
+                            queryParams.minValue = parseFloat(minValue);
+                        }
+                        if (tokenSymbol) {
+                            queryParams.symbol = tokenSymbol;
+                        }
+
+                        const result = await walletQueryService.getTokenHoldings(queryParams);
+                        speakText(result.spokenMessage);
+                        
+                        return res.json({
+                            success: result.success,
+                            user_input: text,
+                            action_performed: 'GET_TOKEN_HOLDINGS',
+                            pluto_response: result.message,
+                            holdings_data: result.data,
+                            timestamp: new Date().toISOString()
+                        });
+                    } catch (error) {
+                        const errorMessage = "Sorry, I couldn't fetch your token holdings right now. Please try again.";
+                        speakText(errorMessage);
+                        return res.status(500).json({
+                            success: false,
+                            error: "Failed to get token holdings",
+                            message: error instanceof Error ? error.message : "Unknown error"
+                        });
+                    }
+
+                case 'GET_WALLET_SUMMARY':
+                    try {
+                        const result = await walletQueryService.getWalletSummary();
+                        speakText(result.spokenMessage);
+                        
+                        return res.json({
+                            success: result.success,
+                            user_input: text,
+                            action_performed: 'GET_WALLET_SUMMARY',
+                            pluto_response: result.message,
+                            summary_data: result.data,
+                            timestamp: new Date().toISOString()
+                        });
+                    } catch (error) {
+                        const errorMessage = "Sorry, I couldn't generate your wallet summary right now. Please try again.";
+                        speakText(errorMessage);
+                        return res.status(500).json({
+                            success: false,
+                            error: "Failed to get wallet summary",
+                            message: error instanceof Error ? error.message : "Unknown error"
+                        });
+                    }
                 
                 case 'TRANSFER_ETH':
                     try {

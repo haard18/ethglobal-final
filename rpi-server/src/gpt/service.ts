@@ -3,7 +3,7 @@ import { gptConfig, validateConfig } from './config.js';
 
 export interface ActionableResponse {
   isAction: boolean;
-  action?: 'CREATE_WALLET' | 'IMPORT_WALLET_PRIVATE_KEY' | 'IMPORT_WALLET_MNEMONIC' | 'GET_WALLET_INFO' | 'MONITOR_WALLET' | 'GET_WALLET_TRANSACTIONS' | 'TRANSFER_ETH';
+  action?: 'CREATE_WALLET' | 'IMPORT_WALLET_PRIVATE_KEY' | 'IMPORT_WALLET_MNEMONIC' | 'GET_WALLET_INFO' | 'MONITOR_WALLET' | 'GET_WALLET_TRANSACTIONS' | 'TRANSFER_ETH' | 'GET_WALLET_BALANCE' | 'GET_TOKEN_PRICE' | 'GET_PORTFOLIO_VALUE' | 'GET_TOKEN_HOLDINGS' | 'GET_WALLET_SUMMARY';
   parameters?: any;
   textResponse?: string;
 }
@@ -38,7 +38,12 @@ Available functions:
 - CREATE_WALLET: Generate a new Ethereum wallet (will check storage first)
 - IMPORT_WALLET_PRIVATE_KEY: Import wallet using private key 
 - IMPORT_WALLET_MNEMONIC: Import wallet using mnemonic phrase
-- GET_WALLET_INFO: Get information about existing wallet (addresses, balances, portfolio summary)
+- GET_WALLET_INFO: Get basic wallet information (addresses, wallet count)
+- GET_WALLET_BALANCE: Get wallet ETH balance and total portfolio value
+- GET_TOKEN_PRICE: Get price/value of specific tokens in wallet (requires token symbol)
+- GET_PORTFOLIO_VALUE: Get complete portfolio breakdown and market values
+- GET_TOKEN_HOLDINGS: Get all token holdings with current values
+- GET_WALLET_SUMMARY: Get comprehensive wallet summary with balances and top holdings
 - MONITOR_WALLET: Start monitoring a wallet for transactions
 - GET_WALLET_TRANSACTIONS: Retrieve wallet transaction history
 - TRANSFER_ETH: Transfer ETH to address or ENS name (requires amount and recipient)
@@ -48,7 +53,17 @@ IMPORTANT CONTEXT:
 - User wallets are saved to persistent storage at ./wallet-storage/user-wallet.json
 - Always check if wallet exists before creating new ones
 - For transfers, extract amount (in ETH) and recipient (address or ENS name) from user text
-- Common wallet info queries: "what is my wallet address", "show my address", "my wallet", "wallet info", "portfolio"
+- For token queries, extract token symbol from user text (e.g., "ETH", "USDC", "BTC", "WETH")
+- Extract parameters like: tokenSymbol, minValue, searchTerm from user queries
+- Price/balance queries: "token price", "portfolio value", "wallet balance", "how much", "worth"
+- Market queries: "portfolio", "holdings", "tokens", "coins", "value", "price", "balance"
+- Token-specific queries: "USDC price", "ETH balance", "how much BTC", "WETH value"
+- Portfolio queries: "total value", "portfolio worth", "diversification", "top holdings"
+
+PARAMETER EXTRACTION RULES:
+- Extract tokenSymbol from phrases like: "USDC price", "how much ETH", "BTC value", "my WETH"
+- Extract minValue from phrases like: "tokens worth over $100", "holdings above 50 dollars"
+- Extract searchTerm for general searches like: "stable coins", "tokens containing USD"
 
 Respond ONLY with a JSON object in this exact format:
 {
@@ -91,6 +106,21 @@ Be very confident in your classification - only use "NONE" if you're sure they d
       switch (intentData.action) {
         case 'GET_WALLET_INFO':
           actionResponse = "GM, crypto explorer! Let me fetch your wallet information for you.";
+          break;
+        case 'GET_WALLET_BALANCE':
+          actionResponse = "GM, portfolio tracker! Let me check your wallet balances and values.";
+          break;
+        case 'GET_TOKEN_PRICE':
+          actionResponse = "GM, market analyst! Let me get that token price data for you.";
+          break;
+        case 'GET_PORTFOLIO_VALUE':
+          actionResponse = "GM, DeFi investor! Analyzing your complete portfolio breakdown now.";
+          break;
+        case 'GET_TOKEN_HOLDINGS':
+          actionResponse = "GM, token holder! Let me show you all your current token positions.";
+          break;
+        case 'GET_WALLET_SUMMARY':
+          actionResponse = "GM, crypto trader! Preparing your comprehensive wallet summary.";
           break;
         case 'CREATE_WALLET':
           actionResponse = "GM, fellow validator! Ready to mint a new wallet for you!";

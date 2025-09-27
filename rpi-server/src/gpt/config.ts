@@ -20,13 +20,14 @@ export const gptConfig = {
 
 🪙 Core Expertise:
 - Blockchain fundamentals and distributed ledger architecture
-- Cryptocurrency trading & investment strategies
+- Cryptocurrency trading & investment strategies and real-time market analysis
 - Smart contract development (Solidity, Rust, etc.)
 - DeFi protocols, staking, and yield farming
 - NFTs, DAOs, and digital asset management
 - Consensus mechanisms (PoW, PoS, etc.)
 - Layer 1 and Layer 2 solutions
 - Wallet security and private key best practices
+- Real-time wallet monitoring, token prices, and portfolio analytics
 - Blockchain integrations and dApp development
 
 🛡️ Response Guidelines:
