@@ -342,6 +342,86 @@ const processTransferEvent = async (transferEvent, signature, eventIndex, blockN
   }
 };
 
+// Function to process generic/unknown events by trying to extract common fields
+const processGenericEvent = async (eventObj, signature, eventIndex, blockNumber, blockHash, blockTimestamp) => {
+  try {
+    console.log("Processing generic event with available fields:", Object.keys(eventObj));
+    
+    // Try to extract common fields with various naming conventions
+    const possibleTokenFields = ['mint', 'token', 'tokenAddress', 'token_address', 'coin', 'asset'];
+    const possibleUserFields = ['user', 'trader', 'buyer', 'seller', 'from', 'to', 'account', 'wallet'];
+    const possibleAmountFields = ['amount', 'tokenAmount', 'token_amount', 'coin_amount', 'quantity'];
+    const possibleSolFields = ['solAmount', 'sol_amount', 'lamports', 'price', 'value'];
+    const possibleDirectionFields = ['direction', 'action', 'type', 'operation'];
+    
+    const findField = (obj, possibleNames) => {
+      for (const name of possibleNames) {
+        if (obj[name] !== undefined && obj[name] !== null && obj[name] !== '') {
+          return obj[name];
+        }
+      }
+      return null;
+    };
+    
+    const tokenAddress = findField(eventObj, possibleTokenFields) || 'unknown';
+    const user = findField(eventObj, possibleUserFields) || 'unknown';
+    const amount = findField(eventObj, possibleAmountFields) || '0';
+    const solAmount = findField(eventObj, possibleSolFields) || '0';
+    const direction = findField(eventObj, possibleDirectionFields) || 'unknown';
+    
+    // Determine event type based on available data
+    let eventType = 'generic';
+    if (direction && direction.toString().toLowerCase().includes('buy')) {
+      eventType = 'buy';
+    } else if (direction && direction.toString().toLowerCase().includes('sell')) {
+      eventType = 'sell';
+    } else if (amount !== '0' && solAmount !== '0') {
+      eventType = 'trade';
+    }
+    
+    const eventData = {
+      eventType: eventType,
+      blockNumber: Number(blockNumber),
+      blockHash: blockHash,
+      transactionHash: signature,
+      logIndex: eventIndex,
+      tokenAddress: tokenAddress.toString(),
+      user: user.toString(),
+      amount: amount.toString(),
+      solAmount: solAmount.toString(),
+      timestamp: blockTimestamp,
+      metadata: {
+        direction: direction ? direction.toString() : 'unknown',
+        extractedFrom: 'generic_parser',
+        originalFields: Object.keys(eventObj),
+        rawEvent: JSON.stringify(eventObj)
+      }
+    };
+    
+    console.log(`🔍 Generic Event: ${eventType} - Token: ${tokenAddress.toString().slice(0, 8)}... User: ${user.toString().slice(0, 8)}... Amount: ${amount} SOL: ${solAmount}`);
+    
+    return eventData;
+  } catch (error) {
+    console.error("Error processing generic event:", error);
+    return {
+      eventType: 'parse_error',
+      blockNumber: Number(blockNumber),
+      blockHash: blockHash,
+      transactionHash: signature,
+      logIndex: eventIndex,
+      tokenAddress: 'unknown',
+      user: 'unknown',
+      amount: '0',
+      solAmount: '0',
+      timestamp: blockTimestamp,
+      metadata: {
+        parseError: error.message,
+        rawEvent: JSON.stringify(eventObj)
+      }
+    };
+  }
+};
+
 // Function to process individual Pumpfun events
 const processPumpfunEvent = async (event, blockData, sourceKey = '') => {
   try {
