@@ -48,12 +48,15 @@ const getCursor = () => {
 const handlePumpfunEvents = async (blockScopedData, registry) => {
   try {
     const blockNumber = blockScopedData.clock?.number || 'unknown';
+    const blockHash = blockScopedData.clock?.id || '';
+    const blockTimestamp = new Date(Number(blockScopedData.clock?.timestamp?.seconds || 0) * 1000).toISOString();
+    
     console.log(`Processing Pumpfun events for block ${blockNumber}...`);
     
     // Extract the mapOutput from the BlockScopedData
     const mapOutput = blockScopedData.output?.mapOutput;
     
-    if (!mapOutput) {
+    if (!mapOutput || !mapOutput.value) {
       console.log("No mapOutput found in block data");
       return;
     }
@@ -66,40 +69,276 @@ const handlePumpfunEvents = async (blockScopedData, registry) => {
       console.log(`Found Pumpfun events data (${mapOutput.value.length} bytes)`);
       
       try {
-        // For now, let's just count and save the raw data since we have binary data
-        // In a production system, you'd properly decode the protobuf here
+        // Decode the protobuf using the registry
+        const messageType = registry.findMessage('pumpfun.PumpfunBlockEvents');
+        if (!messageType) {
+          console.error("Could not find PumpfunBlockEvents message type in registry");
+          return;
+        }
         
-        // Create a simplified event record for this block
+        // Decode the binary protobuf data
+        const pumpfunBlockEvents = messageType.fromBinary(mapOutput.value);
+        console.log(`Decoded Pumpfun block events:`, Object.keys(pumpfunBlockEvents));
+        
+        // Process transaction events - check both possible field names
+        const transactions = pumpfunBlockEvents.transactions || pumpfunBlockEvents.transactionEvents || [];
+        
+        if (transactions.length > 0) {
+          console.log(`Found ${transactions.length} transaction events`);
+          
+          for (const txEvent of transactions) {
+            await processPumpfunTransactionEvent(txEvent, blockNumber, blockHash, blockTimestamp);
+          }
+        } else {
+          console.log(`No transaction events found in this block (checked ${Object.keys(pumpfunBlockEvents).join(', ')})`);
+          
+          // Debug: Let's see what's actually in the decoded data
+          if (Object.keys(pumpfunBlockEvents).length > 0) {
+            console.log("Debug - Available fields in decoded data:", Object.keys(pumpfunBlockEvents));
+            
+            // Try to access the transactions field and see what's in it
+            if (pumpfunBlockEvents.transactions !== undefined) {
+              console.log(`Transactions field type: ${typeof pumpfunBlockEvents.transactions}`);
+              console.log(`Transactions field length: ${pumpfunBlockEvents.transactions?.length || 'N/A'}`);
+              
+              if (Array.isArray(pumpfunBlockEvents.transactions) && pumpfunBlockEvents.transactions.length > 0) {
+                console.log("First transaction keys:", Object.keys(pumpfunBlockEvents.transactions[0]));
+              }
+            }
+          }
+        }
+        
+        // Process any other events if they exist in the structure
+        if (pumpfunBlockEvents.events && pumpfunBlockEvents.events.length > 0) {
+          console.log(`Found ${pumpfunBlockEvents.events.length} other events`);
+          
+          for (const event of pumpfunBlockEvents.events) {
+            await processPumpfunEvent(event, {
+              number: blockNumber,
+              hash: blockHash,
+              timestamp: blockTimestamp
+            }, 'direct_event');
+          }
+        }
+        
+      } catch (decodeError) {
+        console.error("Error decoding Pumpfun protobuf data:", decodeError);
+        console.log("Falling back to raw data storage...");
+        
+        // Fallback: store raw data for debugging
         const eventData = {
-          eventType: 'pumpfun_block_activity',
-          blockNumber: Number(blockScopedData.clock?.number || 0),
-          blockHash: blockScopedData.clock?.id || '',
-          transactionHash: `block_${blockNumber}`,
+          eventType: 'pumpfun_raw_data',
+          blockNumber: Number(blockNumber),
+          blockHash: blockHash,
+          transactionHash: `block_${blockNumber}_raw`,
           logIndex: 0,
-          tokenAddress: 'multiple', // Since this is block-level data
-          user: 'multiple',
+          tokenAddress: 'unknown',
+          user: 'unknown',
           amount: '0',
-          solAmount: mapOutput.value.length.toString(), // Use buffer size as activity indicator
-          timestamp: new Date(Number(blockScopedData.clock?.timestamp?.seconds || 0) * 1000).toISOString(),
+          solAmount: '0',
+          timestamp: blockTimestamp,
           metadata: {
             dataSize: mapOutput.value.length,
             typeUrl: mapOutput.typeUrl,
-            blockId: blockScopedData.clock?.id,
-            rawDataAvailable: true
+            blockId: blockHash,
+            rawDataAvailable: true,
+            decodeError: decodeError.message
           }
         };
 
         await savePumpfunEvent(eventData);
-        console.log(`✅ Pumpfun block activity recorded - Block: ${blockNumber}, Data Size: ${mapOutput.value.length} bytes`);
-        
-      } catch (decodeError) {
-        console.error("Error processing Pumpfun protobuf data:", decodeError);
       }
     } else {
       console.log("No Pumpfun events protobuf data found or wrong type");
     }
   } catch (error) {
     console.error("Error handling Pumpfun events:", error);
+  }
+};
+
+// Function to process Pumpfun transaction events (PumpfunTransactionEvents)
+const processPumpfunTransactionEvent = async (txEvent, blockNumber, blockHash, blockTimestamp) => {
+  try {
+    const signature = txEvent.signature || '';
+    console.log(`Processing transaction ${signature} with ${txEvent.events?.length || 0} events`);
+    
+    if (!txEvent.events || txEvent.events.length === 0) {
+      console.log(`No events in transaction ${signature}`);
+      return;
+    }
+    
+    // Process each event within the transaction
+    for (let i = 0; i < txEvent.events.length; i++) {
+      const event = txEvent.events[i];
+      await processPumpfunEventFromTransaction(event, signature, i, blockNumber, blockHash, blockTimestamp);
+    }
+    
+  } catch (error) {
+    console.error("Error processing Pumpfun transaction event:", error);
+  }
+};
+
+// Function to process individual events from transactions
+const processPumpfunEventFromTransaction = async (event, signature, eventIndex, blockNumber, blockHash, blockTimestamp) => {
+  try {
+    // Determine event type based on the event structure
+    let eventType = 'unknown';
+    let eventData = null;
+    
+    // Handle the actual event structure - the event is nested under 'event' field
+    if (event.event) {
+      const actualEvent = event.event;
+      console.log(`Processing nested event with keys:`, Object.keys(actualEvent));
+      
+      // Check if this is a SwapEvent
+      if (actualEvent.swapEvent || actualEvent.swap_event) {
+        eventType = 'swap';
+        const swapEvent = actualEvent.swapEvent || actualEvent.swap_event;
+        eventData = await processSwapEvent(swapEvent, signature, eventIndex, blockNumber, blockHash, blockTimestamp);
+      }
+      // Check for create events
+      else if (actualEvent.createEvent || actualEvent.create_event) {
+        eventType = 'create';
+        const createEvent = actualEvent.createEvent || actualEvent.create_event;
+        eventData = await processCreateEvent(createEvent, signature, eventIndex, blockNumber, blockHash, blockTimestamp);
+      }
+      // Check for transfer events
+      else if (actualEvent.transferEvent || actualEvent.transfer_event) {
+        eventType = 'transfer';
+        const transferEvent = actualEvent.transferEvent || actualEvent.transfer_event;
+        eventData = await processTransferEvent(transferEvent, signature, eventIndex, blockNumber, blockHash, blockTimestamp);
+      }
+      // Check for other possible event types
+      else if (actualEvent.tradeEvent || actualEvent.trade_event) {
+        eventType = 'trade';
+        const tradeEvent = actualEvent.tradeEvent || actualEvent.trade_event;
+        eventData = await processSwapEvent(tradeEvent, signature, eventIndex, blockNumber, blockHash, blockTimestamp);
+      }
+      else {
+        console.log(`Unknown nested event type in transaction ${signature}, event ${eventIndex}`);
+        console.log("Nested event keys:", Object.keys(actualEvent));
+        
+        // Try to extract any useful data from the nested event
+        eventData = await processGenericEvent(actualEvent, signature, eventIndex, blockNumber, blockHash, blockTimestamp);
+      }
+    }
+    else {
+      console.log(`No 'event' field found in transaction ${signature}, event ${eventIndex}`);
+      console.log("Available fields:", Object.keys(event));
+      
+      // Try processing as a direct event
+      eventData = await processGenericEvent(event, signature, eventIndex, blockNumber, blockHash, blockTimestamp);
+    }
+    
+    if (eventData) {
+      await savePumpfunEvent(eventData);
+      console.log(`✅ Pumpfun ${eventType} event saved - TX: ${signature.slice(0, 8)}...`);
+    }
+    
+  } catch (error) {
+    console.error("Error processing individual Pumpfun event:", error);
+  }
+};
+
+// Function to process SwapEvent according to protobuf schema
+const processSwapEvent = async (swapEvent, signature, eventIndex, blockNumber, blockHash, blockTimestamp) => {
+  try {
+    const user = swapEvent.user || '';
+    const mint = swapEvent.mint || '';
+    const bondingCurve = swapEvent.bondingCurve || swapEvent.bonding_curve || '';
+    const solAmount = swapEvent.solAmount || swapEvent.sol_amount || '0';
+    const tokenAmount = swapEvent.tokenAmount || swapEvent.token_amount || '0';
+    const direction = swapEvent.direction || 'unknown'; // 'buy' or 'sell'
+    
+    const eventData = {
+      eventType: `swap_${direction}`,
+      blockNumber: Number(blockNumber),
+      blockHash: blockHash,
+      transactionHash: signature,
+      logIndex: eventIndex,
+      tokenAddress: mint,
+      user: user,
+      amount: tokenAmount.toString(),
+      solAmount: solAmount.toString(),
+      timestamp: blockTimestamp,
+      metadata: {
+        bondingCurve: bondingCurve,
+        direction: direction,
+        virtualSolReserves: (swapEvent.virtualSolReserves || swapEvent.virtual_sol_reserves || '0').toString(),
+        virtualTokenReserves: (swapEvent.virtualTokenReserves || swapEvent.virtual_token_reserves || '0').toString(),
+        realSolReserves: (swapEvent.realSolReserves || swapEvent.real_sol_reserves || '0').toString(),
+        realTokenReserves: (swapEvent.realTokenReserves || swapEvent.real_token_reserves || '0').toString(),
+        userTokenPreBalance: (swapEvent.userTokenPreBalance || swapEvent.user_token_pre_balance || '0').toString(),
+        eventType: 'swap'
+      }
+    };
+    
+    console.log(`📈 Swap Event: ${direction} ${tokenAmount} tokens for ${solAmount} SOL - User: ${user.slice(0, 8)}... Token: ${mint.slice(0, 8)}...`);
+    
+    return eventData;
+  } catch (error) {
+    console.error("Error processing swap event:", error);
+    return null;
+  }
+};
+
+// Function to process CreateEvent (if exists in protobuf)
+const processCreateEvent = async (createEvent, signature, eventIndex, blockNumber, blockHash, blockTimestamp) => {
+  try {
+    const eventData = {
+      eventType: 'create',
+      blockNumber: Number(blockNumber),
+      blockHash: blockHash,
+      transactionHash: signature,
+      logIndex: eventIndex,
+      tokenAddress: createEvent.mint || createEvent.token || '',
+      user: createEvent.creator || createEvent.user || '',
+      amount: '0',
+      solAmount: (createEvent.initialSol || createEvent.initial_sol || '0').toString(),
+      timestamp: blockTimestamp,
+      metadata: {
+        eventType: 'create',
+        rawCreateEvent: JSON.stringify(createEvent)
+      }
+    };
+    
+    console.log(`🎯 Create Event: New token ${eventData.tokenAddress} created by ${eventData.user.slice(0, 8)}...`);
+    
+    return eventData;
+  } catch (error) {
+    console.error("Error processing create event:", error);
+    return null;
+  }
+};
+
+// Function to process TransferEvent (if exists in protobuf)
+const processTransferEvent = async (transferEvent, signature, eventIndex, blockNumber, blockHash, blockTimestamp) => {
+  try {
+    const eventData = {
+      eventType: 'transfer',
+      blockNumber: Number(blockNumber),
+      blockHash: blockHash,
+      transactionHash: signature,
+      logIndex: eventIndex,
+      tokenAddress: transferEvent.mint || transferEvent.token || '',
+      user: transferEvent.from || transferEvent.to || '',
+      amount: (transferEvent.amount || '0').toString(),
+      solAmount: '0',
+      timestamp: blockTimestamp,
+      metadata: {
+        from: transferEvent.from || '',
+        to: transferEvent.to || '',
+        eventType: 'transfer',
+        rawTransferEvent: JSON.stringify(transferEvent)
+      }
+    };
+    
+    console.log(`🔄 Transfer Event: ${eventData.amount} tokens - From: ${transferEvent.from?.slice(0, 8)}... To: ${transferEvent.to?.slice(0, 8)}...`);
+    
+    return eventData;
+  } catch (error) {
+    console.error("Error processing transfer event:", error);
+    return null;
   }
 };
 
