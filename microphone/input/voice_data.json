@@ -1,0 +1,30 @@
+{
+  "hardy": {
+    "features": {
+      "mfcc_mean": [
+        -267.67920939127606,
+        169.6765340169271,
+        12.14981778462728,
+        22.05718485514323,
+        20.51276206970215,
+        17.379799524943035,
+        23.603646596272785,
+        11.77582279841105,
+        5.29566103219986,
+        16.110469500223797,
+        10.396685123443604,
+        2.1644519170125327,
+        1.6473243335882823
+      ],
+      "spectral_centroid": 783.136258976533,
+      "zcr": 0.029199853705911688,
+      "rms": 0.1151685689886411
+    },
+    "samples_count": 3,
+    "transcripts": [
+      "hello we are at each Global today",
+      "I will now finish this test by speaking A final sentence the result should confirm that my recording device and recognition software are",
+      "the purpose of this recording is to check accuracy tone and clarity"
+    ]
+  }
+}

@@ -8,3 +8,9 @@ cryptography
 mnemonic
 pyaudio
 requests
+speechbrain
+torch
+torchaudio
+numpy
+scipy
+librosa
