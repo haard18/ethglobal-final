@@ -432,25 +432,43 @@ export class PhysicalWalletService {
     }
 
     /**
-     * Process transfer command from natural language
+     * Process transfer command from natural language with enhanced parsing and conversational responses
      */
     async processTransferCommand(command: string): Promise<TransferResult & { spokenMessage: string }> {
         try {
-            // Parse the command
-            const transferRequest = WalletTransferService.parseTransferCommand(command);
-            if (!transferRequest) {
-                const errorMessage = 'Could not understand the transfer command. Please specify amount, recipient, and chain. For example: "transfer 0.1 ETH to vitalik on ethereum"';
+            // Use enhanced parsing for conversational UX
+            const parseResult = WalletTransferService.parseTransferCommandEnhanced(command);
+            
+            // If we have a conversational response, return it
+            if (parseResult.conversationalResponse) {
                 return {
                     success: false,
-                    error: errorMessage,
-                    spokenMessage: errorMessage
+                    error: parseResult.conversationalResponse,
+                    spokenMessage: parseResult.conversationalResponse
                 };
             }
-
-            console.log('📝 Parsed transfer request:', transferRequest);
-
-            // Execute the transfer
-            return await WalletTransferService.executeTransfer(transferRequest);
+            
+            // If we have a complete transfer request, execute it
+            if (parseResult.request) {
+                console.log('📝 Parsed transfer request:', parseResult.request);
+                const result = await WalletTransferService.executeTransfer(parseResult.request);
+                
+                // Add spoken message to the result
+                return {
+                    ...result,
+                    spokenMessage: result.success 
+                        ? `Transfer completed successfully! Sent ${parseResult.request.amount} ${parseResult.request.currency} to ${parseResult.request.recipient} on ${parseResult.request.chainName}.`
+                        : result.error || 'Transfer failed for unknown reason.'
+                };
+            }
+            
+            // Fallback error message
+            const errorMessage = 'Could not understand the transfer command. Please specify amount, recipient, and chain. For example: "transfer 1 ETH to alice on ethereum"';
+            return {
+                success: false,
+                error: errorMessage,
+                spokenMessage: errorMessage
+            };
 
         } catch (error) {
             console.error('❌ Transfer command processing error:', error);
@@ -467,7 +485,8 @@ export class PhysicalWalletService {
      * Get wallet balance and announce it
      */
     async checkAndAnnounceBalance(walletIndex: number = 0): Promise<void> {
-        await WalletTransferService.announceWalletBalance(walletIndex);
+        // TODO: Implement wallet balance announcement
+        console.log(`🔍 Checking balance for wallet ${walletIndex}`);
     }
 
     /**
