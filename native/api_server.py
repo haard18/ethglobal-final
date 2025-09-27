@@ -85,7 +85,7 @@ class APIEmotionalDisplay:
             "sad": {'width': 20, 'height': 44, 'offset_y': 3},
             "mischievous": {'width': 14, 'height': 32, 'offset_y': 2},
             "sideeye": {'width': 20, 'height': 40, 'offset_y': 0},
-            "wave" : {}
+            "wave" : {'width': 20, 'height': 40, 'offset_y': 0}
         }
 
     def draw_wave(self, draw):
