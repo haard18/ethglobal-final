@@ -13,6 +13,8 @@ import speech_recognition as sr
 from dotenv import load_dotenv
 from typing import List, Optional, Tuple
 
+from utils.display import show_display_message
+
 # Add the project path
 sys.path.append(os.path.dirname(__file__))
 
@@ -371,13 +373,14 @@ class PlutoWalletAssistant:
                 
                 if wake_detected:
                     print("🎤 Wake word detected. Start speaking...")
-                    
+                    show_display_message({"emotion": "wave", "text": "Listening!.."})
                     # Listen for command
                     audio_data = self.audio.listen_until_silence()
                     text = self.audio.transcribe(audio_data)
                     
                     if text:
                         print(f"👤 You said: {text}")
+                        show_display_message()
                         
                         # Check for exit
                         if any(exit_word in text.lower() for exit_word in ['exit', 'quit', 'goodbye', 'stop']):
@@ -606,11 +609,13 @@ if __name__ == "__main__":
             woke = audio.listen_for_wake_word(["hey pluto"])
             if woke:
                 print("Wake word detected! Start speaking...")
+                show_display_message({"emotion": "wave", "text": "Listening!.."})
                 audio_data = audio.listen_until_silence()
                 text = audio.transcribe(audio_data)
                 if text:
                     print(f"You said: {text}")
-                    url = "http://localhost:3000/"  # Your API endpoint
+                    show_display_message()
+                    url = "http://172.30.142.11:3000/"  # Your API endpoint
                     payload = {"text": text}
                     try:
                         response = requests.post(url, json=payload)
