@@ -18,6 +18,7 @@ import {
 } from './db/index.js';
 import { startMarketDataStream } from './market/index.js';
 import { startPumpfunEventStream } from './pumpfun/index.js';
+import { startCronJob } from './db/cronjob.js';
 import axios from 'axios';
 
 const app = express();
@@ -594,6 +595,10 @@ const startServer = async () => {
     // Start the Pumpfun events streaming in background
     startPumpfunEventStream();
     console.log('Pumpfun events stream started');
+
+    // Start the data cleanup cronjob
+    startCronJob();
+    console.log('Data cleanup cronjob started');
 
     app.listen(PORT, () => {
       console.log(`Substream server running on port ${PORT}`);
