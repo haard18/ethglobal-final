@@ -1,7 +1,6 @@
 import express, { type Request, type Response } from "express";
 import { gptService, type ActionableResponse } from "./gpt/service.js";
 import { PhysicalWalletService } from "./services/physicalWallet.js";
-import { TransferService } from "./services/transferService.js";
 import { WalletQueryService } from "./services/walletQueryService.js";
 import { speakText } from "./output/speak.js";
 import { GraphProtocolService, type TokenBalance, type WalletData, WalletMonitorService, type WalletMonitor } from "./graph/market/walletmonitor.ts";
@@ -14,7 +13,6 @@ const port = 3000;
 const physicalWalletService = new PhysicalWalletService();
 const graphProtocolService = new GraphProtocolService();
 const walletMonitorService = new WalletMonitorService();
-const transferService = new TransferService(physicalWalletService);
 const walletQueryService = new WalletQueryService(physicalWalletService);
 
 // Middleware to parse JSON
@@ -271,21 +269,22 @@ app.post("/wallet/transfer/voice", async (req: Request, res: Response) => {
         
         console.log(`🎤 Voice-activated transfer requested: ${amount} ETH to ${toAddress}`);
         
-        const transferResponse = await transferService.performVoiceActivatedTransfer(toAddress, amount, rpcUrl);
+        // Use our new transfer command processing with natural language-like input
+        const commandText = `transfer ${amount} ETH to ${toAddress}`;
+        const transferResponse = await physicalWalletService.processTransferCommand(commandText);
         
         if (transferResponse.success) {
             res.json({
                 success: true,
-                message: transferResponse.message,
-                transfer: transferResponse.result,
-                walletUsed: transferResponse.walletUsed,
+                message: transferResponse.spokenMessage,
+                transfer: transferResponse,
                 timestamp: new Date().toISOString()
             });
         } else {
             res.status(400).json({
                 success: false,
                 error: transferResponse.error || "Transfer failed",
-                message: transferResponse.message,
+                message: transferResponse.spokenMessage,
                 timestamp: new Date().toISOString()
             });
         }
@@ -302,8 +301,15 @@ app.post("/wallet/transfer/voice", async (req: Request, res: Response) => {
 // Get wallet summary for transfer operations
 app.get("/wallet/transfer/summary", async (req: Request, res: Response) => {
     try {
-        const summary = await transferService.getWalletSummaryForTransfer();
         const walletCount = physicalWalletService.getWalletCount();
+        const allWallets = physicalWalletService.getAllStoredWallets();
+        
+        // Get basic summary information
+        const summary = {
+            totalWallets: walletCount,
+            hasMainWallet: walletCount > 0,
+            mainWalletAddress: walletCount > 0 ? allWallets[0]?.walletInfo.address : null
+        };
         
         res.json({
             success: true,
@@ -325,23 +331,14 @@ app.get("/wallet/transfer/summary", async (req: Request, res: Response) => {
 // Create wallet for transfer (when no wallets exist)
 app.post("/wallet/transfer/create", async (req: Request, res: Response) => {
     try {
-        const result = await transferService.createWalletForTransfer();
+        const physicalWallet = await physicalWalletService.generatePhysicalWallet();
         
-        if (result.success) {
-            res.json({
-                success: true,
-                message: result.message,
-                walletAddress: result.address,
-                timestamp: new Date().toISOString()
-            });
-        } else {
-            res.status(400).json({
-                success: false,
-                error: result.message,
-                message: "Failed to create wallet for transfer",
-                timestamp: new Date().toISOString()
-            });
-        }
+        res.json({
+            success: true,
+            message: "Wallet created successfully for transfers",
+            walletAddress: physicalWallet.walletInfo.address,
+            timestamp: new Date().toISOString()
+        });
     } catch (error) {
         console.error("Error creating wallet for transfer:", error);
         res.status(500).json({
@@ -1675,26 +1672,11 @@ app.post("/", async (req: Request, res: Response) => {
                 
                 case 'TRANSFER_ETH':
                     try {
-                        // Extract transfer parameters from intent analysis
-                        const { amount, toAddress } = intentAnalysis.parameters || {};
-                        
-                        if (!amount || !toAddress) {
-                            const errorMessage = "I need both an amount and a recipient address or ENS name to make the transfer.";
-                            speakText(errorMessage);
-                            return res.status(400).json({
-                                success: false,
-                                error: "Missing transfer parameters",
-                                message: errorMessage,
-                                timestamp: new Date().toISOString()
-                            });
-                        }
-                        
-                        // Perform transfer using main wallet
-                        const transferResult = await physicalWalletService.transferFromMainWallet(toAddress, amount);
+                        // Use our new transfer service to process the command naturally
+                        const transferResult = await physicalWalletService.processTransferCommand(text);
                         
                         if (transferResult.success) {
-                            const successMessage = `Successfully transferred ${amount} ETH to ${toAddress}. Transaction hash: ${transferResult.transactionHash}`;
-                            speakText(`Transfer completed! Sent ${amount} ETH successfully.`);
+                            const successMessage = transferResult.spokenMessage || `Successfully transferred ETH. Transaction hash: ${transferResult.transactionHash}`;
                             
                             return res.json({
                                 success: true,
@@ -1705,13 +1687,13 @@ app.post("/", async (req: Request, res: Response) => {
                                 timestamp: new Date().toISOString()
                             });
                         } else {
-                            const errorMessage = `Transfer failed: ${transferResult.error}`;
-                            speakText("Transfer failed. Please check your balance and try again.");
+                            const errorMessage = transferResult.spokenMessage || `Transfer failed: ${transferResult.error}`;
                             
                             return res.status(400).json({
                                 success: false,
                                 error: "Transfer failed",
                                 message: errorMessage,
+                                transfer_details: transferResult,
                                 timestamp: new Date().toISOString()
                             });
                         }

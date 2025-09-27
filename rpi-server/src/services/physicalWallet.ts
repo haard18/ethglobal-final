@@ -1,4 +1,5 @@
 import { EthereumWalletGenerator, type WalletInfo, type TransferResult } from '../functions/walletCreation.js';
+import { WalletTransferService, type TransferRequest } from '../functions/walletTransfer.js';
 import { GraphProtocolService, type WalletData, type Transaction } from '../graph/market/walletmonitor.js';
 import { WalletStorageService } from '../functions/walletStorage.js';
 import { announceWalletCount, announceWalletCreated } from '../output/speak.js';
@@ -428,5 +429,51 @@ export class PhysicalWalletService {
      */
     getWalletSummary() {
         return WalletStorageService.getWalletSummary();
+    }
+
+    /**
+     * Process transfer command from natural language
+     */
+    async processTransferCommand(command: string): Promise<TransferResult & { spokenMessage: string }> {
+        try {
+            // Parse the command
+            const transferRequest = WalletTransferService.parseTransferCommand(command);
+            if (!transferRequest) {
+                const errorMessage = 'Could not understand the transfer command. Please say something like "transfer 0.1 ETH to vitalik.eth"';
+                return {
+                    success: false,
+                    error: errorMessage,
+                    spokenMessage: errorMessage
+                };
+            }
+
+            console.log('📝 Parsed transfer request:', transferRequest);
+
+            // Execute the transfer
+            return await WalletTransferService.executeTransfer(transferRequest);
+
+        } catch (error) {
+            console.error('❌ Transfer command processing error:', error);
+            const errorMessage = `Failed to process transfer command: ${error}`;
+            return {
+                success: false,
+                error: errorMessage,
+                spokenMessage: errorMessage
+            };
+        }
+    }
+
+    /**
+     * Get wallet balance and announce it
+     */
+    async checkAndAnnounceBalance(walletIndex: number = 0): Promise<void> {
+        await WalletTransferService.announceWalletBalance(walletIndex);
+    }
+
+    /**
+     * Validate if transfer is possible
+     */
+    async validateTransfer(transferRequest: TransferRequest) {
+        return await WalletTransferService.validateTransfer(transferRequest);
     }
 }

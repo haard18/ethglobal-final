@@ -610,7 +610,7 @@ if __name__ == "__main__":
                 text = audio.transcribe(audio_data)
                 if text:
                     print(f"You said: {text}")
-                    url = "http://172.30.142.11:3000/"  # Your API endpoint
+                    url = "http://localhost:3000/"  # Your API endpoint
                     payload = {"text": text}
                     try:
                         response = requests.post(url, json=payload)
