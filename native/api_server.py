@@ -65,6 +65,10 @@ class APIEmotionalDisplay:
         self.blink_progress = 0.0
         self.blink_speed = 0.3
 
+        # wave state
+        self.wave_phase = 0.0   # NEW
+        self.wave_speed = 0.3   # NEW
+
         # Thread safety
         self.state_lock = threading.Lock()
 
@@ -80,8 +84,27 @@ class APIEmotionalDisplay:
             "grumpy": {'width': 18, 'height': 20, 'offset_y': 5},
             "sad": {'width': 20, 'height': 44, 'offset_y': 3},
             "mischievous": {'width': 14, 'height': 32, 'offset_y': 2},
-            "sideeye": {'width': 20, 'height': 40, 'offset_y': 0}
+            "sideeye": {'width': 20, 'height': 40, 'offset_y': 0},
+            "wave" : {}
         }
+
+    def draw_wave(self, draw):
+        """Draw a compressed, randomized waveform (voice memo style)."""
+        mid_y = self.height // 2
+        bar_width = 4           # width of each bar
+        spacing = 2             # space between bars
+        num_bars = self.width // (bar_width + spacing)
+
+        for i in range(num_bars):
+            # Random bar height for "listening energy"
+            bar_height = random.randint(4, self.height // 2)
+            top_y = mid_y - bar_height // 2
+            bottom_y = mid_y + bar_height // 2
+            x = i * (bar_width + spacing)
+
+            draw.rectangle([x, top_y, x + bar_width, bottom_y], fill="white")
+
+
 
     def show_text_with_emotion(self, text, emotion="normal", duration=10):
         """API method to show text with emotion for specified duration."""
@@ -317,6 +340,8 @@ class APIEmotionalDisplay:
             if current_mode == "text":
                 # Draw text mode
                 self.draw_text(draw, current_text, current_emotion)
+            elif current_emotion == "wave":
+                self.draw_wave(draw)
             else:
                 # Draw eyes mode
                 # Calculate current eye positions and sizes

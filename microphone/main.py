@@ -234,12 +234,12 @@ class EnhancedAudioInput:
                 time.sleep(0.5)
                 continue
 
-    def listen_until_silence(self, timeout: int = 10) -> Optional[sr.AudioData]:
+    def listen_until_silence(self, timeout: int = 100) -> Optional[sr.AudioData]:
         """Listen for audio until silence is detected."""
         try:
             with self.microphone as source:
                 print("🎤 Listening for command... (speak now)")
-                audio = self.recognizer.listen(source, timeout=timeout, phrase_time_limit=10)
+                audio = self.recognizer.listen(source, timeout=timeout, phrase_time_limit=100)
                 print("✅ Audio captured")
                 return audio
         except sr.WaitTimeoutError:
@@ -610,7 +610,7 @@ if __name__ == "__main__":
                 text = audio.transcribe(audio_data)
                 if text:
                     print(f"You said: {text}")
-                    url = "http://172.30.142.11:3000/"  # Your API endpoint
+                    url = "http://localhost:3000/"  # Your API endpoint
                     payload = {"text": text}
                     try:
                         response = requests.post(url, json=payload)

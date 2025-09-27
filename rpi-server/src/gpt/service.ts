@@ -53,7 +53,7 @@ Available functions:
 IMPORTANT CONTEXT:
 - User wallets are saved to persistent storage at ./wallet-storage/user-wallet.json
 - Always check if wallet exists before creating new ones
-- For transfers, extract amount (in ETH) and recipient (address or ENS name) from user text
+- For transfers, detect any speech patterns where someone says ETH amount + "to" + any word. The system will automatically convert any word to an ENS name (word.eth) if it's not a valid address
 - For token queries, extract token symbol from user text (e.g., "ETH", "USDC", "BTC", "WETH")
 - Extract parameters like: tokenSymbol, minValue, searchTerm from user queries
 - Price/balance queries: "token price", "portfolio value", "wallet balance", "how much", "worth"
