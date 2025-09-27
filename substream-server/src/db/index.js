@@ -1,0 +1,197 @@
+import pkg from 'pg';
+const { Pool } = pkg;
+import dotenv from 'dotenv';
+
+dotenv.config();
+
+// Allow self-signed certificates for development
+process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+
+const pool = new Pool({
+  connectionString: process.env.DB_URL,
+  ssl: {
+    rejectUnauthorized: false
+  },
+  connectionTimeoutMillis: 10000,
+  idleTimeoutMillis: 30000,
+  max: 20
+});
+
+// Initialize database tables
+export const initDatabase = async () => {
+  const client = await pool.connect();
+  try {
+    // Create market_data table if it doesn't exist
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS market_data (
+        id SERIAL PRIMARY KEY,
+        token_address VARCHAR(42) NOT NULL,
+        token_symbol VARCHAR(20) NOT NULL,
+        token_name VARCHAR(100) NOT NULL,
+        price_usd DECIMAL(20, 8) NOT NULL,
+        price_eth DECIMAL(20, 8),
+        volume_24h DECIMAL(20, 2),
+        market_cap DECIMAL(20, 2),
+        percent_change_1h DECIMAL(8, 4),
+        percent_change_24h DECIMAL(8, 4),
+        percent_change_7d DECIMAL(8, 4),
+        block_number BIGINT NOT NULL,
+        block_hash VARCHAR(66) NOT NULL,
+        timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(token_address, block_number)
+      )
+    `);
+
+    // Create index for faster queries
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_market_data_token_address ON market_data(token_address);
+    `);
+
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_market_data_timestamp ON market_data(timestamp);
+    `);
+
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_market_data_block_number ON market_data(block_number);
+    `);
+
+    console.log('Database initialized successfully');
+  } catch (error) {
+    console.error('Error initializing database:', error);
+    throw error;
+  } finally {
+    client.release();
+  }
+};
+
+// Save market data to database
+export const saveMarketData = async (marketData) => {
+  const client = await pool.connect();
+  try {
+    const query = `
+      INSERT INTO market_data (
+        token_address, token_symbol, token_name, price_usd, price_eth,
+        volume_24h, market_cap, percent_change_1h, percent_change_24h,
+        percent_change_7d, block_number, block_hash
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+      ON CONFLICT (token_address, block_number) 
+      DO UPDATE SET
+        price_usd = EXCLUDED.price_usd,
+        price_eth = EXCLUDED.price_eth,
+        volume_24h = EXCLUDED.volume_24h,
+        market_cap = EXCLUDED.market_cap,
+        percent_change_1h = EXCLUDED.percent_change_1h,
+        percent_change_24h = EXCLUDED.percent_change_24h,
+        percent_change_7d = EXCLUDED.percent_change_7d,
+        timestamp = CURRENT_TIMESTAMP
+    `;
+
+    const values = [
+      marketData.tokenAddress,
+      marketData.tokenSymbol,
+      marketData.tokenName,
+      marketData.priceUsd,
+      marketData.priceEth,
+      marketData.volume24h,
+      marketData.marketCap,
+      marketData.percentChange1h,
+      marketData.percentChange24h,
+      marketData.percentChange7d,
+      marketData.blockNumber,
+      marketData.blockHash
+    ];
+
+    await client.query(query, values);
+    console.log(`Market data saved for token: ${marketData.tokenSymbol}`);
+  } catch (error) {
+    console.error('Error saving market data:', error);
+    throw error;
+  } finally {
+    client.release();
+  }
+};
+
+// Get latest market data for a token
+export const getLatestMarketData = async (tokenAddress) => {
+  const client = await pool.connect();
+  try {
+    const query = `
+      SELECT * FROM market_data 
+      WHERE token_address = $1 
+      ORDER BY timestamp DESC 
+      LIMIT 1
+    `;
+    
+    const result = await client.query(query, [tokenAddress]);
+    return result.rows[0];
+  } catch (error) {
+    console.error('Error getting latest market data:', error);
+    throw error;
+  } finally {
+    client.release();
+  }
+};
+
+// Get historical market data for a token
+export const getHistoricalMarketData = async (tokenAddress, limit = 100) => {
+  const client = await pool.connect();
+  try {
+    const query = `
+      SELECT * FROM market_data 
+      WHERE token_address = $1 
+      ORDER BY timestamp DESC 
+      LIMIT $2
+    `;
+    
+    const result = await client.query(query, [tokenAddress, limit]);
+    return result.rows;
+  } catch (error) {
+    console.error('Error getting historical market data:', error);
+    throw error;
+  } finally {
+    client.release();
+  }
+};
+
+// Get all tokens with their latest market data
+export const getAllLatestMarketData = async () => {
+  const client = await pool.connect();
+  try {
+    const query = `
+      SELECT DISTINCT ON (token_address) * 
+      FROM market_data 
+      ORDER BY token_address, timestamp DESC
+    `;
+    
+    const result = await client.query(query);
+    return result.rows;
+  } catch (error) {
+    console.error('Error getting all latest market data:', error);
+    throw error;
+  } finally {
+    client.release();
+  }
+};
+
+// Get market data by block range
+export const getMarketDataByBlockRange = async (startBlock, endBlock) => {
+  const client = await pool.connect();
+  try {
+    const query = `
+      SELECT * FROM market_data 
+      WHERE block_number BETWEEN $1 AND $2 
+      ORDER BY block_number ASC
+    `;
+    
+    const result = await client.query(query, [startBlock, endBlock]);
+    return result.rows;
+  } catch (error) {
+    console.error('Error getting market data by block range:', error);
+    throw error;
+  } finally {
+    client.release();
+  }
+};
+
+export { pool };
