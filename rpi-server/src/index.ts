@@ -2,6 +2,7 @@ import express, { type Request, type Response } from "express";
 import { gptService, type ActionableResponse } from "./gpt/service.js";
 import { PhysicalWalletService } from "./services/physicalWallet.js";
 import { speakText } from "./output/speak.js";
+import { PythNetworkOracle } from "./functions/PythNetworkOracle.js"; // Import your Pyth implementation
 
 const app = express();
 const port = 3000;
@@ -27,6 +28,29 @@ interface ImportWalletRequest {
 interface MonitoringRequest {
     address: string;
     intervalMs?: number;
+}
+
+// Interface for Pyth price requests
+interface PythPriceRequest {
+    assets: string[];
+    hermesEndpoint?: string;
+}
+
+// Interface for price monitoring requests
+interface PythMonitoringRequest {
+    assetSymbol: string;
+    targetPrice: number;
+    condition: 'above' | 'below';
+    intervalMs?: number;
+}
+
+// Interface for on-chain price update requests
+interface PythUpdateRequest {
+    providerUrl: string;
+    pythContractAddress: string;
+    walletPrivateKey: string;
+    priceIds: string[];
+    hermesEndpoint?: string;
 }
 
 // Physical Wallet Routes
@@ -312,6 +336,235 @@ app.get("/wallets", (req: Request, res: Response) => {
         res.status(500).json({
             success: false,
             error: "Failed to get wallets",
+            message: error instanceof Error ? error.message : "Unknown error"
+        });
+    }
+});
+
+// Get single asset price
+app.get("/pyth/price/:asset", async (req: Request, res: Response) => {
+    try {
+        const { asset } = req.params;
+        const hermesEndpoint = req.query.hermes as string;
+        
+        if (!asset) {
+            return res.status(400).json({
+                success: false,
+                error: "Bad Request",
+                message: "Asset symbol is required"
+            });
+        }
+        
+        if (!PythNetworkOracle.isAssetSupported(asset)) {
+            return res.status(404).json({
+                success: false,
+                error: "Not Found",
+                message: `Asset ${asset} is not supported`,
+                supportedAssets: PythNetworkOracle.getAvailableAssets()
+            });
+        }
+        
+        const priceUpdate = await PythNetworkOracle.getPrice(asset, hermesEndpoint);
+        
+        if (!priceUpdate) {
+            return res.status(404).json({
+                success: false,
+                error: "Not Found",
+                message: `Price data not found for ${asset}`
+            });
+        }
+        
+        res.json({
+            success: true,
+            asset,
+            price: priceUpdate.price,
+            confidence: priceUpdate.confidence,
+            publishTime: new Date(priceUpdate.publishTime * 1000).toISOString(),
+            priceId: priceUpdate.priceId,
+            timestamp: new Date().toISOString()
+        });
+    } catch (error) {
+        console.error("Error getting asset price:", error);
+        res.status(500).json({
+            success: false,
+            error: "Failed to get asset price",
+            message: error instanceof Error ? error.message : "Unknown error"
+        });
+    }
+});
+
+// Get multiple asset prices
+app.post("/pyth/prices", async (req: Request, res: Response) => {
+    try {
+        const { assets, hermesEndpoint }: PythPriceRequest = req.body;
+        
+        if (!assets || !Array.isArray(assets) || assets.length === 0) {
+            return res.status(400).json({
+                success: false,
+                error: "Bad Request",
+                message: "Assets array is required and must not be empty"
+            });
+        }
+        
+        const unsupportedAssets = assets.filter(asset => !PythNetworkOracle.isAssetSupported(asset));
+        if (unsupportedAssets.length > 0) {
+            return res.status(400).json({
+                success: false,
+                error: "Bad Request",
+                message: `Unsupported assets: ${unsupportedAssets.join(', ')}`,
+                supportedAssets: PythNetworkOracle.getAvailableAssets()
+            });
+        }
+        
+        const priceUpdates = await PythNetworkOracle.getMultiplePrices(assets, hermesEndpoint);
+
+        // Debug: log raw updates
+        console.log("Raw price updates:", JSON.stringify(priceUpdates, null, 2));
+
+        res.json({
+            success: true,
+            prices: priceUpdates.map((update: any, i: number) => ({
+    asset: assets[i],
+    price: update.price,
+    confidence: update.confidence,
+    publishTime: update.publishTime && !isNaN(update.publishTime)
+        ? new Date(update.publishTime * 1000).toISOString()
+        : new Date().toISOString(), // fallback to server time
+    priceId: update.priceId
+}))
+
+        });
+    } catch (error) {
+        console.error("Error getting multiple asset prices:", error);
+        res.status(500).json({
+            success: false,
+            error: "Failed to get asset prices",
+            message: error instanceof Error ? error.message : "Unknown error"
+        });
+    }
+});
+
+
+// Get price difference between two assets
+app.get(
+  ["/pyth/compare/:asset1/:asset2", "/pyth/compare"],
+  async (req: Request, res: Response) => {
+    try {
+      // First try path params, fallback to query params
+      const asset1 = req.params.asset1 || (req.query.asset1 as string);
+      const asset2 = req.params.asset2 || (req.query.asset2 as string);
+      const hermesEndpoint = (req.query.hermes as string) || undefined;
+
+      if (!asset1 || !asset2) {
+        return res.status(400).json({
+          success: false,
+          error: "Bad Request",
+          message: "Both asset1 and asset2 are required",
+        });
+      }
+
+      // Validate supported assets
+      const unsupported = [asset1, asset2].filter(
+        (a) => !PythNetworkOracle.isAssetSupported(a)
+      );
+      if (unsupported.length > 0) {
+        return res.status(400).json({
+          success: false,
+          error: "Bad Request",
+          message: `Unsupported assets: ${unsupported.join(", ")}`,
+          supportedAssets: PythNetworkOracle.getAvailableAssets(),
+        });
+      }
+
+      // Get comparison
+      const comparison = await PythNetworkOracle.getPriceDifference(
+        asset1,
+        asset2,
+        hermesEndpoint
+      );
+
+      if (!comparison) {
+        return res.status(404).json({
+          success: false,
+          error: "Not Found",
+          message: "Unable to compare prices - data not available",
+        });
+      }
+
+      res.json({
+        success: true,
+        comparison: {
+          asset1: { symbol: asset1, price: comparison.asset1Price },
+          asset2: { symbol: asset2, price: comparison.asset2Price },
+          difference: comparison.difference,
+          percentDifference: comparison.percentDifference,
+        },
+        timestamp: new Date().toISOString(),
+      });
+    } catch (error) {
+      console.error("Error comparing asset prices:", error);
+      res.status(500).json({
+        success: false,
+        error: "Failed to compare asset prices",
+        message: error instanceof Error ? error.message : "Unknown error",
+      });
+    }
+  }
+);
+
+
+// Get available assets
+app.get("/pyth/assets", (req: Request, res: Response) => {
+    try {
+        const assets = PythNetworkOracle.getAvailableAssets();
+        
+        res.json({
+            success: true,
+            assets: assets.map((asset: any) => ({
+                symbol: asset,
+                priceId: PythNetworkOracle.getPriceFeedId(asset)
+            })),
+            count: assets.length,
+            timestamp: new Date().toISOString()
+        });
+    } catch (error) {
+        console.error("Error getting available assets:", error);
+        res.status(500).json({
+            success: false,
+            error: "Failed to get available assets",
+            message: error instanceof Error ? error.message : "Unknown error"
+        });
+    }
+});
+
+// Validate asset support
+app.get("/pyth/validate/:asset", (req: Request, res: Response) => {
+    try {
+        const { asset } = req.params;
+        
+        if (!asset) {
+            return res.status(400).json({
+                success: false,
+                error: "Bad Request",
+                message: "Asset symbol is required"
+            });
+        }
+        
+        const isSupported = PythNetworkOracle.isAssetSupported(asset);
+        const priceId = PythNetworkOracle.getPriceFeedId(asset);
+        
+        res.json({
+            success: true,
+            asset,
+            isSupported,
+            priceId: priceId || null,
+            timestamp: new Date().toISOString()
+        });
+    } catch (error) {
+        console.error("Error validating asset:", error);
+        res.status(500).json({
+            success: false,
+            error: "Failed to validate asset",
             message: error instanceof Error ? error.message : "Unknown error"
         });
     }
