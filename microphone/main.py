@@ -10,16 +10,13 @@ import json
 import re
 import difflib
 import speech_recognition as sr
-from dotenv import load_dotenv
 from typing import List, Optional, Tuple
 
 from utils.display import show_display_message
+from config import config
 
 # Add the project path
 sys.path.append(os.path.dirname(__file__))
-
-# Load environment variables
-load_dotenv()
 
 class EnhancedAudioInput:
     """Enhanced Audio Input with robust wake word detection."""
@@ -28,10 +25,10 @@ class EnhancedAudioInput:
         self.recognizer = sr.Recognizer()
         self.microphone = sr.Microphone()
         
-        # Optimize settings for wake word detection
-        self.recognizer.energy_threshold = 200  # Lower for better sensitivity
+        # Optimize settings for wake word detection (using config)
+        self.recognizer.energy_threshold = config.energy_threshold
         self.recognizer.dynamic_energy_threshold = True
-        self.recognizer.pause_threshold = 0.9   # Shorter pause
+        self.recognizer.pause_threshold = config.pause_threshold
         self.recognizer.phrase_threshold = 0.3  # Quick detection
         self.recognizer.non_speaking_duration = 0.3
         
@@ -75,8 +72,8 @@ class EnhancedAudioInput:
             "plu": 0.50,
         }
         
-        # Minimum confidence threshold
-        self.wake_threshold = 0.6
+        # Minimum confidence threshold (using config)
+        self.wake_threshold = config.wake_threshold
         
         print("🎤 Enhanced Audio Input initialized")
         print(f"🎯 Wake word patterns: {len(self.wake_word_patterns)} variations loaded")
@@ -599,120 +596,145 @@ def main():
     else:
         print("❌ No wake word detected. Exiting...")
 
-if __name__ == "__main__":
-    import requests
-    import json
+class PlutoEnhancedSession:
+    """Enhanced session manager with conversation flow"""
     
-    audio = AudioInput()
-    print("🎤 Pluto Voice Assistant - Wallet Integration Active")
-    print("💰 Connected to RPI server at http://localhost:3000")
-    print("🔊 Say 'Hey Pluto' to wake the assistant.")
-    print("\n💡 Try these wallet commands:")
-    print("  • 'create wallet' or 'generate new wallet'")
-    print("  • 'what is my wallet' or 'show my wallets'") 
-    print("  • 'check my balance' or 'what's my balance'")
-    print("  • 'what is the price of ethereum'")
-    print("  • 'show my portfolio value'")
-    print("=" * 60)
+    def __init__(self):
+        import requests
+        self.requests = requests
+        self.audio = AudioInput()
+        self.api_url = config.rpi_server_url
+        self.session_id = f"pluto_{int(time.time())}"
+        self.session_active = False
+        self.last_interaction = time.time()
+        self.conversation_timeout = config.session_timeout_seconds
+        
+    def is_conversation_active(self):
+        """Check if we're in an active conversation"""
+        return self.session_active and (time.time() - self.last_interaction) < self.conversation_timeout
     
-    while True:
+    def start_conversation(self):
+        """Start a new conversation session"""
+        self.session_active = True
+        self.last_interaction = time.time()
+        print(f"🎯 Conversation started (Session: {self.session_id})")
+        show_display_message({"emotion": "excited", "text": "Ready to chat!", "duration": 3})
+        
+    def end_conversation(self):
+        """End the conversation session"""
+        if self.session_active:
+            print("🎯 Conversation ended")
+            show_display_message({"emotion": "normal", "text": "Goodbye!", "duration": 3})
+            try:
+                self.requests.post(f"{self.api_url}session/{self.session_id}/end", timeout=3)
+            except:
+                pass
+        self.session_active = False
+        
+    def update_last_interaction(self):
+        """Update the last interaction time"""
+        self.last_interaction = time.time()
+        
+    def send_to_server(self, text: str):
+        """Send text to server with session context"""
+        payload = {
+            "text": text,
+            "sessionId": self.session_id,
+            "continueSession": self.session_active
+        }
+        
         try:
-            # Enhanced wake word detection - will detect all variations
-            woke = audio.listen_for_wake_word(["hey pluto"])
-            if woke:
-                print("Wake word detected! Start speaking...")
-                show_display_message({"emotion": "wave", "text": "Listening!.."})
-                audio_data = audio.listen_until_silence()
-                text = audio.transcribe(audio_data)
-                
-                if text:
-                    print(f"You said: {text}")
-                    show_display_message()
-                    url = "http://172.30.142.11:3000/"  # Your API endpoint
-                    payload = {"text": text}
-                    try:
-                        response = requests.post(url, json=payload)
-                        print(f"API response: {response.text}")
-                    except Exception as api_err:
-                        print(f"API call failed: {api_err}")
-                    if any(exit_word in text.lower() for exit_word in ['exit', 'quit', 'goodbye', 'stop']):
-                        print("👋 Exiting Pluto Assistant...")
-                        break
+            response = self.requests.post(self.api_url, json=payload, timeout=config.request_timeout_seconds)
+            if response.status_code == 200:
+                data = response.json()
+                self.session_active = data.get('continue_listening', False)
+                return data
+            else:
+                print(f"Server error: {response.status_code}")
+                return {"success": False, "pluto_response": "Server error occurred"}
+        except Exception as api_err:
+            print(f"API call failed: {api_err}")
+            return {"success": False, "pluto_response": "Connection error occurred"}
+    
+    def run_conversation_loop(self):
+        """Run the continuous conversation loop"""
+        print("🎤 Enhanced Pluto Assistant - Conversation Mode Active")
+        print("💫 Say 'Hey Pluto' once to start a conversation")
+        print("🔄 Then continue talking without wake words until timeout")
+        print("🛑 Say 'goodbye', 'exit', or wait 5 minutes to end session")
+        print("=" * 70)
+        
+        while True:
+            try:
+                if not self.is_conversation_active():
+                    # Need wake word to start conversation
+                    print("🎤 Waiting for wake word...")
+                    show_display_message({"emotion": "normal", "text": "Say Hey Pluto"})
                     
-                    try:
-                        # Send to RPI server API
-                        url = "http://localhost:3000/"
-                        payload = {"text": text}
-                        
-                        print("🔄 Processing with Pluto AI...")
-                        response = requests.post(url, json=payload, timeout=30)
-                        
-                        if response.status_code == 200:
-                            result = response.json()
-                            
-                            if result.get('success'):
-                                pluto_response = result.get('pluto_response', 'I processed your request.')
-                                print(f"🤖 Pluto: {pluto_response}")
-                                
-                                # Show additional info if available
-                                if 'action_performed' in result:
-                                    action = result['action_performed']
-                                    print(f"✅ Action: {action}")
-                                    
-                                    # Show wallet info if created
-                                    if action == 'CREATE_WALLET' and 'wallet' in result:
-                                        wallet = result['wallet']
-                                        print(f"🏦 New Wallet Address: {wallet['address']}")
-                                        print("💡 Your wallet details have been saved securely.")
-                                    
-                                    # Show balance info
-                                    elif action == 'GET_WALLET_BALANCE' and 'balance_data' in result:
-                                        balance_data = result['balance_data']
-                                        if balance_data:
-                                            print("💰 Balance Information:")
-                                            for wallet_balance in balance_data:
-                                                address = wallet_balance.get('address', 'Unknown')[:10] + "..."
-                                                eth_balance = wallet_balance.get('eth_balance', '0')
-                                                print(f"  📍 {address}: {eth_balance} ETH")
-                                    
-                                    # Show token price info
-                                    elif action == 'GET_TOKEN_PRICE' and 'token_data' in result:
-                                        token_data = result['token_data']
-                                        if token_data:
-                                            symbol = token_data.get('symbol', 'Token')
-                                            price = token_data.get('price_usd', 'N/A')
-                                            print(f"💲 {symbol} Price: ${price}")
-                                
-                            else:
-                                error_msg = result.get('message', 'Unknown error occurred')
-                                print(f"❌ Error: {error_msg}")
-                        
-                        else:
-                            print(f"❌ Server error: {response.status_code}")
-                            print("🔧 Make sure the RPI server is running on http://localhost:3000")
-                    
-                    except requests.exceptions.ConnectionError:
-                        print("❌ Connection failed: RPI server not responding")
-                        print("🔧 Please start the RPI server: npm run dev")
-                        print("💡 Falling back to basic response...")
-                        print(f"🤖 I heard: '{text}' but couldn't process it right now.")
-                    
-                    except requests.exceptions.Timeout:
-                        print("⏰ Request timed out - server is taking too long to respond")
-                        
-                    except Exception as api_err:
-                        print(f"❌ API call failed: {api_err}")
-                        print(f"🤖 I heard: '{text}' but encountered an error processing it.")
-                
+                    woke = self.audio.listen_for_wake_word(["hey pluto"])
+                    if woke:
+                        self.start_conversation()
+                        continue
                 else:
-                    print("🔇 Didn't catch that clearly. Try speaking again...")
-                
-                print("-" * 40)
-                print("🎤 Listening for 'Hey Pluto'...")
-                
-        except KeyboardInterrupt:
-            print("\n👋 Session ended by user.")
-            break
-        except Exception as e:
-            print(f"❌ Unexpected error: {e}")
-            print("🔄 Restarting voice detection...")
+                    # In active conversation - no wake word needed
+                    print("🎤 Listening in conversation mode...")
+                    show_display_message({"emotion": "wave", "text": "Listening..."})
+                    
+                    audio_data = self.audio.listen_until_silence()
+                    text = self.audio.transcribe(audio_data)
+                    
+                    if text:
+                        print(f"👤 You said: {text}")
+                        self.update_last_interaction()
+                        
+                        # Clear display while processing
+                        show_display_message({"emotion": "confused", "text": "Processing..."})
+                        
+                        # Send to server
+                        response_data = self.send_to_server(text)
+                        
+                        if response_data.get("success"):
+                            pluto_response = response_data.get("pluto_response", "")
+                            print(f"🤖 Pluto: {pluto_response}")
+                            
+                            # Show display message if provided
+                            display_msg = response_data.get("display_message")
+                            if display_msg:
+                                show_display_message({
+                                    "emotion": "happy", 
+                                    "text": display_msg,
+                                    "duration": 8
+                                })
+                            else:
+                                show_display_message({"emotion": "happy", "text": "✓"})
+                            
+                            # Check if conversation should continue
+                            if not response_data.get("continue_listening", True):
+                                self.end_conversation()
+                                
+                        else:
+                            error_msg = response_data.get("pluto_response", "Something went wrong")
+                            print(f"❌ Error: {error_msg}")
+                            show_display_message({"emotion": "sad", "text": "Error"})
+                            
+                        # Check for conversation end commands
+                        if any(exit_word in text.lower() for exit_word in ['exit', 'quit', 'goodbye', 'stop']):
+                            self.end_conversation()
+                            
+                    else:
+                        # No speech detected - show gentle prompt
+                        if self.is_conversation_active():
+                            show_display_message({"emotion": "normal", "text": "Still listening..."})
+                        
+            except KeyboardInterrupt:
+                print("\n\n👋 Session ended by user")
+                self.end_conversation()
+                break
+            except Exception as e:
+                print(f"❌ Unexpected error: {e}")
+                time.sleep(1)
+
+
+if __name__ == "__main__":
+    session = PlutoEnhancedSession()
+    session.run_conversation_loop()

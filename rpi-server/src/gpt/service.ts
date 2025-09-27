@@ -26,6 +26,16 @@ export class GPTService {
    * @returns ActionableResponse indicating if an action should be taken
    */
   async analyzeUserIntent(userText: string): Promise<ActionableResponse> {
+    return this.analyzeUserIntentWithContext(userText, "This is a new conversation.");
+  }
+
+  /**
+   * Analyze user input with conversation context
+   * @param userText - The text message from the user
+   * @param contextSummary - Summary of conversation context
+   * @returns ActionableResponse indicating if an action should be taken
+   */
+  async analyzeUserIntentWithContext(userText: string, contextSummary: string): Promise<ActionableResponse> {
     try {
       const response = await this.openai.chat.completions.create({
         model: gptConfig.model,
@@ -33,6 +43,9 @@ export class GPTService {
           {
             role: 'system',
             content: `You are an intelligent function dispatcher for a blockchain wallet system. Analyze the user's message and determine if they want to perform a specific wallet action.
+
+CONVERSATION CONTEXT:
+${contextSummary}
 
 Available functions:
 - CREATE_WALLET: Generate a new Ethereum wallet (will check storage first)
