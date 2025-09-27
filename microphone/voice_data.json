@@ -1,0 +1,30 @@
+{
+  "haard": {
+    "features": {
+      "mfcc_mean": [
+        -466.73631795247394,
+        116.38284301757812,
+        22.160967508951824,
+        2.857233762741089,
+        13.673985799153646,
+        11.844320297241211,
+        9.406577905019125,
+        15.231827735900879,
+        26.834447860717773,
+        25.887670516967773,
+        7.442842960357666,
+        -4.799060488740603,
+        -2.6992677450180054
+      ],
+      "spectral_centroid": 1519.0741593440318,
+      "zcr": 0.10058750083377803,
+      "rms": 0.04273250761131445
+    },
+    "samples_count": 3,
+    "transcripts": [
+      "hay instructions quickly and naturally record in a quiet environment say different things simple life show you what you said",
+      "speech recognition open graph in a molecule",
+      "stable money needs reliable stable sales building infinite low.com which network"
+    ]
+  }
+}
