@@ -7,7 +7,8 @@ import { speakText } from '../output/speak.js';
 export interface TransferRequest {
     amount: string;
     recipient: string;
-    chainName?: string;
+    chainName: string; // Now required!
+    currency: string;  // ETH, BNB, etc.
     fromWalletIndex?: number;
 }
 
@@ -26,6 +27,53 @@ export class WalletTransferService {
             const normalizedCommand = command.toLowerCase().trim();
             let amount: string = '';
             let recipient: string = '';
+            let chainName: string = '';
+            let currency: string = '';
+            
+            // Define chain mappings
+            const chainMappings: { [key: string]: string } = {
+                // Ethereum
+                'ethereum': 'ethereum',
+                'eth': 'ethereum', 
+                'mainnet': 'ethereum',
+                'sepolia': 'sepolia',
+                'testnet': 'sepolia',
+                'goerli': 'goerli',
+                
+                // Binance Smart Chain
+                'binance': 'bsc',
+                'bsc': 'bsc',
+                'bnb': 'bsc',
+                'smartchain': 'bsc',
+                
+                // Base
+                'base': 'base',
+                'coinbase': 'base',
+                
+                // Polygon
+                'polygon': 'polygon',
+                'matic': 'polygon',
+                'poly': 'polygon',
+                
+                // Arbitrum
+                'arbitrum': 'arbitrum',
+                'arb': 'arbitrum',
+                
+                // Optimism
+                'optimism': 'optimism',
+                'op': 'optimism'
+            };
+            
+            // Define currency mappings
+            const currencyMappings: { [key: string]: string } = {
+                'eth': 'ETH',
+                'ethereum': 'ETH',
+                'ether': 'ETH',
+                'bnb': 'BNB',
+                'binance': 'BNB',
+                'matic': 'MATIC',
+                'polygon': 'MATIC'
+            };
             
             const numberMatches = normalizedCommand.match(/\b(\d+(?:\.\d+)?)\b/g);
             console.log(`🔢 Found numbers: ${numberMatches?.join(', ') || 'none'}`);
@@ -33,15 +81,55 @@ export class WalletTransferService {
             const words = normalizedCommand.replace(/[^\w\s]/g, '').split(/\s+/).filter(w => w.length > 0);
             console.log(`📝 Words: ${words.join(', ')}`);
             
+            // Detect chain name
+            for (const word of words) {
+                if (chainMappings[word]) {
+                    chainName = chainMappings[word];
+                    console.log(`🔗 Found chain: ${word} → ${chainName}`);
+                    break;
+                }
+            }
+            
+            // Special pattern: "on [chain]"
+            const onChainMatch = normalizedCommand.match(/\bon\s+(\w+)/i);
+            if (onChainMatch && onChainMatch[1]) {
+                const chainKey = onChainMatch[1].toLowerCase();
+                if (chainMappings[chainKey]) {
+                    chainName = chainMappings[chainKey];
+                    console.log(`🎯 Found "on chain" pattern: ${onChainMatch[1]} → ${chainName}`);
+                }
+            }
+            
+            // Detect currency
+            for (const word of words) {
+                if (currencyMappings[word]) {
+                    currency = currencyMappings[word];
+                    console.log(`💱 Found currency: ${word} → ${currency}`);
+                    break;
+                }
+            }
+            
+            // Default currency to ETH if not specified
+            if (!currency) {
+                currency = 'ETH';
+                console.log(`💱 Default currency: ${currency}`);
+            }
+            
+            // If no chain specified, return null (chain is now mandatory)
+            if (!chainName) {
+                console.log('❌ No chain specified - chain is mandatory for transfers');
+                return null;
+            }
+            
             const potentialNames: string[] = [];
             const excludeWords = [
                 'transfer', 'send', 'move', 'to', 'from', 'the', 'a', 'an', 'and', 'or', 'but', 'with', 'for', 'at', 'in', 'on', 'by',
                 'please', 'can', 'you', 'could', 'would', 'will', 'i', 'me', 'my', 'we', 'us', 'our',
-                'eth', 'ethereum', 'ether', 'coin', 'token', 'crypto', 'currency',
+                'eth', 'ethereum', 'ether', 'coin', 'token', 'crypto', 'currency', 'bnb', 'binance', 'matic', 'polygon',
                 'hey', 'heyy', 'hi', 'hello', 'buddy', 'friend', 'mate',
                 'want', 'need', 'like', 'should', 'must', 'have', 'get', 'make', 'do',
                 'some', 'any', 'all', 'one', 'two', 'three', 'much', 'many', 'more', 'less',
-                'chain', 'network', 'mainnet', 'testnet'
+                'chain', 'network', 'mainnet', 'testnet', 'sepolia', 'goerli', 'base', 'arbitrum', 'optimism', 'bsc', 'smartchain'
             ];
             
             for (const word of words) {
@@ -116,7 +204,8 @@ export class WalletTransferService {
             const result = {
                 amount,
                 recipient,
-                chainName: 'ethereum',
+                chainName,
+                currency,
                 fromWalletIndex: 0
             };
             
@@ -155,7 +244,22 @@ export class WalletTransferService {
                 };
             }
             
-            const provider = new ethers.JsonRpcProvider(process.env.ETHEREUM_RPC_URL || 'https://eth.llamarpc.com');
+            // Get RPC URL based on chain
+            const getRpcUrl = (chain: string): string => {
+                const rpcUrls: { [key: string]: string } = {
+                    'ethereum': 'https://eth.llamarpc.com',
+                    'sepolia': 'https://sepolia.infura.io/v3/YOUR_INFURA_KEY',
+                    'goerli': 'https://goerli.infura.io/v3/YOUR_INFURA_KEY',
+                    'bsc': 'https://bsc-dataseed1.binance.org',
+                    'base': 'https://mainnet.base.org',
+                    'polygon': 'https://polygon-rpc.com',
+                    'arbitrum': 'https://arb1.arbitrum.io/rpc',
+                    'optimism': 'https://mainnet.optimism.io'
+                };
+                return rpcUrls[chain] || 'https://eth.llamarpc.com';
+            };
+            
+            const provider = new ethers.JsonRpcProvider(getRpcUrl(request.chainName));
             const balance = await provider.getBalance(wallet.walletInfo.address);
             const balanceInEth = ethers.formatEther(balance);
             
@@ -210,7 +314,22 @@ export class WalletTransferService {
                 };
             }
             
-            const provider = new ethers.JsonRpcProvider(process.env.ETHEREUM_RPC_URL || 'https://eth.llamarpc.com');
+            // Get RPC URL based on chain
+            const getRpcUrl = (chain: string): string => {
+                const rpcUrls: { [key: string]: string } = {
+                    'ethereum': 'https://eth.llamarpc.com',
+                    'sepolia': 'https://sepolia.infura.io/v3/YOUR_INFURA_KEY',
+                    'goerli': 'https://goerli.infura.io/v3/YOUR_INFURA_KEY',
+                    'bsc': 'https://bsc-dataseed1.binance.org',
+                    'base': 'https://mainnet.base.org',
+                    'polygon': 'https://polygon-rpc.com',
+                    'arbitrum': 'https://arb1.arbitrum.io/rpc',
+                    'optimism': 'https://mainnet.optimism.io'
+                };
+                return rpcUrls[chain] || 'https://eth.llamarpc.com';
+            };
+            
+            const provider = new ethers.JsonRpcProvider(getRpcUrl(request.chainName));
             const ethersWallet = new ethers.Wallet(storedWallet.walletInfo.privateKey, provider);
             
             let toAddress: string;
@@ -292,7 +411,7 @@ export class WalletTransferService {
             
             const request = this.parseTransferCommand(command);
             if (!request) {
-                const errorMsg = 'Sorry, I could not understand the transfer command. Please specify the amount and recipient clearly.';
+                const errorMsg = 'Sorry, I could not understand the transfer command. Please specify the amount, recipient, and chain clearly. For example: "transfer 0.1 eth to alex on ethereum"';
                 await showDisplayMessage({ text: errorMsg });
                 await speakText(errorMsg);
                 return {
@@ -303,16 +422,16 @@ export class WalletTransferService {
             
             console.log('📋 Parsed request:', request);
             
-            const confirmMsg = `Understood: Transfer ${request.amount} ETH to ${request.recipient}. Processing...`;
+            const confirmMsg = `Understood: Transfer ${request.amount} ${request.currency} to ${request.recipient} on ${request.chainName}. Processing...`;
             await showDisplayMessage({ text: confirmMsg });
             await speakText(confirmMsg);
             
             const result = await this.executeTransfer(request);
             
             if (result.success) {
-                const successMsg = `Transfer successful! Sent ${request.amount} ETH to ${request.recipient}. Transaction hash: ${result.transactionHash?.slice(0, 10)}...`;
+                const successMsg = `Transfer successful! Sent ${request.amount} ${request.currency} to ${request.recipient} on ${request.chainName}. Transaction hash: ${result.transactionHash?.slice(0, 10)}...`;
                 await showDisplayMessage({ text: `✅ ${successMsg}`, emotion: 'happy' });
-                await speakText(`Success! ${request.amount} ETH has been transferred to ${request.recipient}.`);
+                await speakText(`Success! ${request.amount} ${request.currency} has been transferred to ${request.recipient} on ${request.chainName}.`);
             } else {
                 const errorMsg = result.error || 'Transfer failed for unknown reason';
                 console.error('❌ Transfer failed:', errorMsg);

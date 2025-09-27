@@ -234,12 +234,12 @@ class EnhancedAudioInput:
                 time.sleep(0.5)
                 continue
 
-    def listen_until_silence(self, timeout: int = 10) -> Optional[sr.AudioData]:
+    def listen_until_silence(self, timeout: int = 100) -> Optional[sr.AudioData]:
         """Listen for audio until silence is detected."""
         try:
             with self.microphone as source:
                 print("🎤 Listening for command... (speak now)")
-                audio = self.recognizer.listen(source, timeout=timeout, phrase_time_limit=10)
+                audio = self.recognizer.listen(source, timeout=timeout, phrase_time_limit=100)
                 print("✅ Audio captured")
                 return audio
         except sr.WaitTimeoutError:

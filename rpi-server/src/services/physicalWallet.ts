@@ -439,7 +439,7 @@ export class PhysicalWalletService {
             // Parse the command
             const transferRequest = WalletTransferService.parseTransferCommand(command);
             if (!transferRequest) {
-                const errorMessage = 'Could not understand the transfer command. Please say something like "transfer 0.1 ETH to vitalik.eth"';
+                const errorMessage = 'Could not understand the transfer command. Please specify amount, recipient, and chain. For example: "transfer 0.1 ETH to vitalik on ethereum"';
                 return {
                     success: false,
                     error: errorMessage,
