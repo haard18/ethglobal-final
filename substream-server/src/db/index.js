@@ -43,7 +43,27 @@ export const initDatabase = async () => {
       )
     `);
 
-    // Create index for faster queries
+    // Create pumpfun_events table for Pumpfun events
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS pumpfun_events (
+        id SERIAL PRIMARY KEY,
+        event_type VARCHAR(50) NOT NULL,
+        block_number BIGINT NOT NULL,
+        block_hash VARCHAR(100) NOT NULL,
+        transaction_hash VARCHAR(100) NOT NULL,
+        log_index INTEGER NOT NULL,
+        token_address VARCHAR(50) NOT NULL,
+        user_address VARCHAR(50) NOT NULL,
+        amount DECIMAL(30, 0) NOT NULL,
+        sol_amount DECIMAL(30, 0) NOT NULL,
+        timestamp TIMESTAMP NOT NULL,
+        metadata JSONB,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(transaction_hash, log_index)
+      )
+    `);
+
+    // Create indexes for faster queries
     await client.query(`
       CREATE INDEX IF NOT EXISTS idx_market_data_token_address ON market_data(token_address);
     `);
@@ -54,6 +74,27 @@ export const initDatabase = async () => {
 
     await client.query(`
       CREATE INDEX IF NOT EXISTS idx_market_data_block_number ON market_data(block_number);
+    `);
+
+    // Pumpfun events indexes
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_pumpfun_events_token_address ON pumpfun_events(token_address);
+    `);
+
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_pumpfun_events_user_address ON pumpfun_events(user_address);
+    `);
+
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_pumpfun_events_event_type ON pumpfun_events(event_type);
+    `);
+
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_pumpfun_events_timestamp ON pumpfun_events(timestamp);
+    `);
+
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_pumpfun_events_block_number ON pumpfun_events(block_number);
     `);
 
     console.log('Database initialized successfully');
@@ -188,6 +229,158 @@ export const getMarketDataByBlockRange = async (startBlock, endBlock) => {
     return result.rows;
   } catch (error) {
     console.error('Error getting market data by block range:', error);
+    throw error;
+  } finally {
+    client.release();
+  }
+};
+
+// Save Pumpfun event to database
+export const savePumpfunEvent = async (eventData) => {
+  const client = await pool.connect();
+  try {
+    const query = `
+      INSERT INTO pumpfun_events (
+        event_type, block_number, block_hash, transaction_hash, log_index,
+        token_address, user_address, amount, sol_amount, timestamp, metadata
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+      ON CONFLICT (transaction_hash, log_index) 
+      DO UPDATE SET
+        event_type = EXCLUDED.event_type,
+        amount = EXCLUDED.amount,
+        sol_amount = EXCLUDED.sol_amount,
+        timestamp = EXCLUDED.timestamp,
+        metadata = EXCLUDED.metadata
+    `;
+
+    const values = [
+      eventData.eventType,
+      eventData.blockNumber,
+      eventData.blockHash,
+      eventData.transactionHash,
+      eventData.logIndex,
+      eventData.tokenAddress,
+      eventData.user,
+      eventData.amount,
+      eventData.solAmount,
+      eventData.timestamp,
+      eventData.metadata
+    ];
+
+    await client.query(query, values);
+    console.log(`Pumpfun event saved - Type: ${eventData.eventType}, Token: ${eventData.tokenAddress}`);
+  } catch (error) {
+    console.error('Error saving Pumpfun event:', error);
+    throw error;
+  } finally {
+    client.release();
+  }
+};
+
+// Get Pumpfun events for a specific token
+export const getPumpfunEventsByToken = async (tokenAddress, limit = 100) => {
+  const client = await pool.connect();
+  try {
+    const query = `
+      SELECT * FROM pumpfun_events 
+      WHERE token_address = $1 
+      ORDER BY timestamp DESC 
+      LIMIT $2
+    `;
+    
+    const result = await client.query(query, [tokenAddress, limit]);
+    return result.rows;
+  } catch (error) {
+    console.error('Error getting Pumpfun events by token:', error);
+    throw error;
+  } finally {
+    client.release();
+  }
+};
+
+// Get Pumpfun events for a specific user
+export const getPumpfunEventsByUser = async (userAddress, limit = 100) => {
+  const client = await pool.connect();
+  try {
+    const query = `
+      SELECT * FROM pumpfun_events 
+      WHERE user_address = $1 
+      ORDER BY timestamp DESC 
+      LIMIT $2
+    `;
+    
+    const result = await client.query(query, [userAddress, limit]);
+    return result.rows;
+  } catch (error) {
+    console.error('Error getting Pumpfun events by user:', error);
+    throw error;
+  } finally {
+    client.release();
+  }
+};
+
+// Get recent Pumpfun events
+export const getRecentPumpfunEvents = async (limit = 100) => {
+  const client = await pool.connect();
+  try {
+    const query = `
+      SELECT * FROM pumpfun_events 
+      ORDER BY timestamp DESC 
+      LIMIT $1
+    `;
+    
+    const result = await client.query(query, [limit]);
+    return result.rows;
+  } catch (error) {
+    console.error('Error getting recent Pumpfun events:', error);
+    throw error;
+  } finally {
+    client.release();
+  }
+};
+
+// Get Pumpfun events by type
+export const getPumpfunEventsByType = async (eventType, limit = 100) => {
+  const client = await pool.connect();
+  try {
+    const query = `
+      SELECT * FROM pumpfun_events 
+      WHERE event_type = $1 
+      ORDER BY timestamp DESC 
+      LIMIT $2
+    `;
+    
+    const result = await client.query(query, [eventType, limit]);
+    return result.rows;
+  } catch (error) {
+    console.error('Error getting Pumpfun events by type:', error);
+    throw error;
+  } finally {
+    client.release();
+  }
+};
+
+// Get Pumpfun trading statistics for a token
+export const getPumpfunTokenStats = async (tokenAddress) => {
+  const client = await pool.connect();
+  try {
+    const query = `
+      SELECT 
+        COUNT(*) as total_trades,
+        COUNT(DISTINCT user_address) as unique_traders,
+        SUM(CASE WHEN event_type = 'buy' THEN CAST(amount AS DECIMAL) ELSE 0 END) as total_buy_amount,
+        SUM(CASE WHEN event_type = 'sell' THEN CAST(amount AS DECIMAL) ELSE 0 END) as total_sell_amount,
+        SUM(CAST(sol_amount AS DECIMAL)) as total_sol_volume,
+        MAX(timestamp) as last_trade_time,
+        MIN(timestamp) as first_trade_time
+      FROM pumpfun_events 
+      WHERE token_address = $1
+    `;
+    
+    const result = await client.query(query, [tokenAddress]);
+    return result.rows[0];
+  } catch (error) {
+    console.error('Error getting Pumpfun token stats:', error);
     throw error;
   } finally {
     client.release();

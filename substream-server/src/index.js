@@ -6,9 +6,16 @@ import {
   getHistoricalMarketData,
   getAllLatestMarketData,
   getMarketDataByBlockRange,
+  savePumpfunEvent,
+  getPumpfunEventsByToken,
+  getPumpfunEventsByUser,
+  getRecentPumpfunEvents,
+  getPumpfunEventsByType,
+  getPumpfunTokenStats,
   pool
 } from './db/index.js';
 import { startMarketDataStream } from './market/index.js';
+import { startPumpfunEventStream } from './pumpfun/index.js';
 import axios from 'axios';
 
 const app = express();
@@ -289,6 +296,102 @@ app.get('/api/market/search/:query', async (req, res) => {
   }
 });
 
+// Pumpfun Events API Endpoints
+
+// Get Pumpfun events for a specific token
+app.get('/api/pumpfun/token/:address/events', async (req, res) => {
+  try {
+    const { address } = req.params;
+    const limit = parseInt(req.query.limit) || 100;
+
+    const events = await getPumpfunEventsByToken(address, limit);
+    const stats = await getPumpfunTokenStats(address);
+
+    res.json({
+      success: true,
+      data: {
+        events,
+        stats,
+        count: events.length
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching Pumpfun token events:', error);
+    res.status(500).json({
+      error: 'Internal server error',
+      message: error.message
+    });
+  }
+});
+
+// Get Pumpfun events for a specific user
+app.get('/api/pumpfun/user/:address/events', async (req, res) => {
+  try {
+    const { address } = req.params;
+    const limit = parseInt(req.query.limit) || 100;
+
+    const events = await getPumpfunEventsByUser(address, limit);
+
+    res.json({
+      success: true,
+      data: events,
+      count: events.length
+    });
+  } catch (error) {
+    console.error('Error fetching Pumpfun user events:', error);
+    res.status(500).json({
+      error: 'Internal server error',
+      message: error.message
+    });
+  }
+});
+
+// Get recent Pumpfun events
+app.get('/api/pumpfun/events/recent', async (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit) || 100;
+    const eventType = req.query.type;
+
+    let events;
+    if (eventType) {
+      events = await getPumpfunEventsByType(eventType, limit);
+    } else {
+      events = await getRecentPumpfunEvents(limit);
+    }
+
+    res.json({
+      success: true,
+      data: events,
+      count: events.length
+    });
+  } catch (error) {
+    console.error('Error fetching recent Pumpfun events:', error);
+    res.status(500).json({
+      error: 'Internal server error',
+      message: error.message
+    });
+  }
+});
+
+// Get Pumpfun token statistics
+app.get('/api/pumpfun/token/:address/stats', async (req, res) => {
+  try {
+    const { address } = req.params;
+    const stats = await getPumpfunTokenStats(address);
+
+    res.json({
+      success: true,
+      data: stats
+    });
+  } catch (error) {
+    console.error('Error fetching Pumpfun token stats:', error);
+    res.status(500).json({
+      error: 'Internal server error',
+      message: error.message
+    });
+  }
+});
+
 // RPC endpoint for getting token price (compatible with wallet integrations)
 app.post('/api/rpc', async (req, res) => {
   try {
@@ -372,6 +475,52 @@ app.post('/api/rpc', async (req, res) => {
           id
         });
 
+      case 'getPumpfunEvents':
+        const { tokenAddress: pumpTokenAddress, limit: pumpLimit = 100 } = params;
+        
+        if (!pumpTokenAddress) {
+          return res.json({
+            jsonrpc: '2.0',
+            error: { code: -32602, message: 'Missing tokenAddress parameter' },
+            id
+          });
+        }
+
+        const pumpEvents = await getPumpfunEventsByToken(pumpTokenAddress, pumpLimit);
+        const pumpStats = await getPumpfunTokenStats(pumpTokenAddress);
+
+        return res.json({
+          jsonrpc: '2.0',
+          result: {
+            events: pumpEvents,
+            stats: pumpStats,
+            count: pumpEvents.length
+          },
+          id
+        });
+
+      case 'getPumpfunUserEvents':
+        const { userAddress, limit: userLimit = 100 } = params;
+        
+        if (!userAddress) {
+          return res.json({
+            jsonrpc: '2.0',
+            error: { code: -32602, message: 'Missing userAddress parameter' },
+            id
+          });
+        }
+
+        const userEvents = await getPumpfunEventsByUser(userAddress, userLimit);
+
+        return res.json({
+          jsonrpc: '2.0',
+          result: {
+            events: userEvents,
+            count: userEvents.length
+          },
+          id
+        });
+
       default:
         return res.json({
           jsonrpc: '2.0',
@@ -404,6 +553,10 @@ const startServer = async () => {
     startMarketDataStream();
     console.log('Market data stream started');
 
+    // Start the Pumpfun events streaming in background
+    startPumpfunEventStream();
+    console.log('Pumpfun events stream started');
+
     app.listen(PORT, () => {
       console.log(`Substream server running on port ${PORT}`);
       console.log(`Health check: http://localhost:${PORT}/health`);
@@ -411,6 +564,10 @@ const startServer = async () => {
       console.log(`- GET /api/market/token/:address - Get latest market data for token`);
       console.log(`- GET /api/market/search/:query - Search for tokens`);
       console.log(`- GET /api/market/all - Get all latest market data`);
+      console.log(`- GET /api/pumpfun/token/:address/events - Get Pumpfun events for token`);
+      console.log(`- GET /api/pumpfun/user/:address/events - Get Pumpfun events for user`);
+      console.log(`- GET /api/pumpfun/events/recent - Get recent Pumpfun events`);
+      console.log(`- GET /api/pumpfun/token/:address/stats - Get Pumpfun token statistics`);
       console.log(`- POST /api/rpc - RPC endpoint for integrations`);
     });
   } catch (error) {
