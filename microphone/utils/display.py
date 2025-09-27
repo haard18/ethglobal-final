@@ -1,7 +1,7 @@
 """
 Display utility functions for controlling the OLED display via API
 """
-
+from typing import Union
 import requests
 from dataclasses import dataclass
 from typing import List, Optional, Dict, Any
@@ -47,11 +47,24 @@ class StatusResponse:
 # ------------------------
 
 def show_display_message(
-    options: DisplayOptions | dict,
-    api_url: str = "http://172.30.142.11:5000"
+    options: Union[DisplayOptions, dict, None] = None,
+    api_url: str = None
 ) -> DisplayResponse:
     """Show text with emotion on the OLED display"""
     try:
+        # Import config here to avoid circular imports
+        try:
+            from config import config as pluto_config
+            if api_url is None:
+                api_url = pluto_config.display_url
+        except ImportError:
+            if api_url is None:
+                api_url = "http://172.30.142.11:5000"
+        
+        # Handle None options (for clearing display)
+        if options is None:
+            options = {"text": "", "emotion": "normal", "duration": 1}
+        
         if isinstance(options, dict):
             text = options.get("text", "")
             emotion = options.get("emotion", "normal")

@@ -2,6 +2,9 @@ import express, { type Request, type Response } from "express";
 import { gptService, type ActionableResponse } from "./gpt/service.js";
 import { PhysicalWalletService } from "./services/physicalWallet.js";
 import { WalletQueryService } from "./services/walletQueryService.js";
+import VoiceCommandRouter from "./services/voiceCommandRouter.js";
+import { uiSyncService } from "./services/uiSyncService.js";
+import { conversationManager } from "./services/conversationManager.js";
 import { speakText } from "./output/speak.js";
 import { GraphProtocolService, type TokenBalance, type WalletData, WalletMonitorService, type WalletMonitor } from "./graph/market/walletmonitor.ts";
 
@@ -9,11 +12,11 @@ const app = express();
 const port = 3000;
 
 // Initialize Services
-// Initialize services
 const physicalWalletService = new PhysicalWalletService();
 const graphProtocolService = new GraphProtocolService();
 const walletMonitorService = new WalletMonitorService();
 const walletQueryService = new WalletQueryService(physicalWalletService);
+const voiceCommandRouter = new VoiceCommandRouter(physicalWalletService, walletQueryService);
 
 // Middleware to parse JSON
 app.use(express.json());
@@ -21,6 +24,8 @@ app.use(express.json());
 // Interface for the GPT request body
 interface GPTRequestBody {
     text: string;
+    sessionId?: string;
+    continueSession?: boolean;
 }
 
 // Interface for wallet import requests
@@ -1486,9 +1491,9 @@ app.get("/market/wallet/:address/summary", async (req: Request, res: Response) =
     }
 });
 
-// Routes
+// Enhanced Voice Command Route with Conversation Context
 app.post("/", async (req: Request, res: Response) => {
-    const { text } = req.body;
+    const { text, sessionId, continueSession } = req.body;
 
     // Validate text content
     if (typeof text !== 'string' || text.trim().length === 0) {
@@ -1499,333 +1504,141 @@ app.post("/", async (req: Request, res: Response) => {
     }
 
     try {
-        // Analyze user intent to see if they want to perform a wallet action
-        const intentAnalysis = await gptService.analyzeUserIntent(text);
+        const effectiveSessionId = sessionId || 'default';
         
-        if (intentAnalysis.isAction && intentAnalysis.action) {
-            // Handle wallet actions
-            switch (intentAnalysis.action) {
-                case 'CREATE_WALLET':
-                    try {
-                        const physicalWallet = await physicalWalletService.generatePhysicalWallet();
-                        
-                        // Speak the action confirmation instead of sending to speaker
-                        speakText(intentAnalysis.textResponse || "Wallet created successfully!");
-                        
-                        return res.json({
-                            success: true,
-                            user_input: text,
-                            action_performed: 'CREATE_WALLET',
-                            pluto_response: intentAnalysis.textResponse,
-                            wallet: {
-                                address: physicalWallet.walletInfo.address,
-                                publicKey: physicalWallet.walletInfo.publicKey,
-                                privateKey: physicalWallet.walletInfo.privateKey,
-                                mnemonic: physicalWallet.walletInfo.mnemonic,
-                                createdAt: physicalWallet.createdAt,
-                                walletData: physicalWallet.walletData
-                            },
-                            timestamp: new Date().toISOString()
-                        });
-                    } catch (error) {
-                        const errorMessage = "Oops! Had some trouble minting your wallet. Let me try that again.";
-                        speakText(errorMessage);
-                        return res.status(500).json({
-                            success: false,
-                            error: "Failed to create wallet",
-                            message: error instanceof Error ? error.message : "Unknown error"
-                        });
-                    }
-                
-                case 'GET_WALLET_INFO':
-                    const wallets = physicalWalletService.getAllWallets();
-                    
-                    let walletSummary: string;
-                    let spokenResponse: string;
-                    
-                    if (wallets.length === 0) {
-                        walletSummary = "You don't have any wallets in your portfolio yet.";
-                        spokenResponse = "You don't have any wallets in your portfolio yet. Would you like me to create one for you?";
-                    } else if (wallets.length === 1) {
-                        const wallet = wallets[0];
-                        if (wallet && wallet.walletInfo) {
-                            const address = wallet.walletInfo.address;
-                            walletSummary = `You have 1 wallet in your portfolio. Your wallet address is ${address}`;
-                            
-                            // Format address for speaking - break it into chunks for easier listening
-                            const formattedAddress = address.slice(0, 6) + "..." + address.slice(-6);
-                            spokenResponse = `You have one wallet in your portfolio. Your wallet address is ${formattedAddress}. The full address is being displayed for you.`;
-                        } else {
-                            walletSummary = "You have 1 wallet, but there's an issue accessing its details.";
-                            spokenResponse = "You have one wallet, but I'm having trouble accessing its details right now.";
-                        }
-                    } else {
-                        walletSummary = `You have ${wallets.length} wallets in your portfolio.`;
-                        spokenResponse = `You have ${wallets.length} wallets in your portfolio. Let me know which one you'd like details for.`;
-                    }
-                    
-                    speakText(spokenResponse);
-                    
-                    return res.json({
-                        success: true,
-                        user_input: text,
-                        action_performed: 'GET_WALLET_INFO',
-                        pluto_response: walletSummary,
-                        wallets: wallets.map(wallet => ({
-                            address: wallet.walletInfo.address,
-                            isMonitoring: wallet.isMonitoring,
-                            createdAt: wallet.createdAt,
-                            lastUpdated: wallet.lastUpdated
-                        })),
-                        timestamp: new Date().toISOString()
-                    });
+        // Process with enhanced voice command router
+        const result = await voiceCommandRouter.processVoiceCommand(text, effectiveSessionId);
+        
+        // Return enhanced response with conversation context
+        return res.json({
+            success: result.success,
+            user_input: text,
+            pluto_response: result.message,
+            spoken_response: result.spokenMessage,
+            display_message: result.displayMessage,
+            data: result.data,
+            session_id: result.sessionId,
+            continue_listening: result.continueListening ?? true,
+            requires_confirmation: result.requiresConfirmation ?? false,
+            session_active: conversationManager.isSessionActive(effectiveSessionId),
+            timestamp: new Date().toISOString()
+        });
 
-                case 'GET_WALLET_BALANCE':
-                    try {
-                        const result = await walletQueryService.getWalletBalance();
-                        speakText(result.spokenMessage);
-                        
-                        return res.json({
-                            success: result.success,
-                            user_input: text,
-                            action_performed: 'GET_WALLET_BALANCE',
-                            pluto_response: result.message,
-                            balance_data: result.data,
-                            timestamp: new Date().toISOString()
-                        });
-                    } catch (error) {
-                        const errorMessage = "Sorry, I couldn't fetch your balance right now. Please try again.";
-                        speakText(errorMessage);
-                        return res.status(500).json({
-                            success: false,
-                            error: "Failed to get balance",
-                            message: error instanceof Error ? error.message : "Unknown error"
-                        });
-                    }
-
-                case 'GET_TOKEN_PRICE':
-                    try {
-                        const { tokenSymbol } = intentAnalysis.parameters || {};
-                        if (!tokenSymbol) {
-                            const errorMessage = "Which token would you like me to check the price for?";
-                            speakText(errorMessage);
-                            return res.json({
-                                success: false,
-                                user_input: text,
-                                action_performed: 'GET_TOKEN_PRICE',
-                                pluto_response: errorMessage,
-                                timestamp: new Date().toISOString()
-                            });
-                        }
-
-                        const result = await walletQueryService.getTokenPrice(tokenSymbol);
-                        speakText(result.spokenMessage);
-                        
-                        return res.json({
-                            success: result.success,
-                            user_input: text,
-                            action_performed: 'GET_TOKEN_PRICE',
-                            pluto_response: result.message,
-                            token_data: result.data,
-                            timestamp: new Date().toISOString()
-                        });
-                    } catch (error) {
-                        const errorMessage = "Sorry, I couldn't fetch token price data right now. Please try again.";
-                        speakText(errorMessage);
-                        return res.status(500).json({
-                            success: false,
-                            error: "Failed to get token price",
-                            message: error instanceof Error ? error.message : "Unknown error"
-                        });
-                    }
-
-                case 'GET_PORTFOLIO_VALUE':
-                    try {
-                        const result = await walletQueryService.getPortfolioValue();
-                        speakText(result.spokenMessage);
-                        
-                        return res.json({
-                            success: result.success,
-                            user_input: text,
-                            action_performed: 'GET_PORTFOLIO_VALUE',
-                            pluto_response: result.message,
-                            portfolio_data: result.data,
-                            timestamp: new Date().toISOString()
-                        });
-                    } catch (error) {
-                        const errorMessage = "Sorry, I couldn't fetch your portfolio data right now. Please try again.";
-                        speakText(errorMessage);
-                        return res.status(500).json({
-                            success: false,
-                            error: "Failed to get portfolio value",
-                            message: error instanceof Error ? error.message : "Unknown error"
-                        });
-                    }
-
-                case 'GET_TOKEN_HOLDINGS':
-                    try {
-                        const { minValue, tokenSymbol } = intentAnalysis.parameters || {};
-                        const queryParams: any = {};
-                        if (minValue && !isNaN(parseFloat(minValue))) {
-                            queryParams.minValue = parseFloat(minValue);
-                        }
-                        if (tokenSymbol) {
-                            queryParams.symbol = tokenSymbol;
-                        }
-
-                        const result = await walletQueryService.getTokenHoldings(queryParams);
-                        speakText(result.spokenMessage);
-                        
-                        return res.json({
-                            success: result.success,
-                            user_input: text,
-                            action_performed: 'GET_TOKEN_HOLDINGS',
-                            pluto_response: result.message,
-                            holdings_data: result.data,
-                            timestamp: new Date().toISOString()
-                        });
-                    } catch (error) {
-                        const errorMessage = "Sorry, I couldn't fetch your token holdings right now. Please try again.";
-                        speakText(errorMessage);
-                        return res.status(500).json({
-                            success: false,
-                            error: "Failed to get token holdings",
-                            message: error instanceof Error ? error.message : "Unknown error"
-                        });
-                    }
-
-                case 'GET_WALLET_SUMMARY':
-                    try {
-                        const result = await walletQueryService.getWalletSummary();
-                        speakText(result.spokenMessage);
-                        
-                        return res.json({
-                            success: result.success,
-                            user_input: text,
-                            action_performed: 'GET_WALLET_SUMMARY',
-                            pluto_response: result.message,
-                            summary_data: result.data,
-                            timestamp: new Date().toISOString()
-                        });
-                    } catch (error) {
-                        const errorMessage = "Sorry, I couldn't generate your wallet summary right now. Please try again.";
-                        speakText(errorMessage);
-                        return res.status(500).json({
-                            success: false,
-                            error: "Failed to get wallet summary",
-                            message: error instanceof Error ? error.message : "Unknown error"
-                        });
-                    }
-
-                case 'GET_WALLET_ACTIVITY':
-                    try {
-                        const { limit, filter } = intentAnalysis.parameters || {};
-                        const transactionLimit = limit && !isNaN(parseInt(limit)) ? parseInt(limit) : 20;
-                        
-                        let result;
-                        if (filter && ['incoming', 'outgoing', 'recent'].includes(filter.toLowerCase())) {
-                            result = await walletQueryService.getFilteredWalletActivity(filter.toLowerCase(), transactionLimit);
-                        } else {
-                            result = await walletQueryService.getWalletActivity(transactionLimit);
-                        }
-                        
-                        speakText(result.spokenMessage);
-                        
-                        return res.json({
-                            success: result.success,
-                            user_input: text,
-                            action_performed: 'GET_WALLET_ACTIVITY',
-                            pluto_response: result.message,
-                            activity_data: result.data,
-                            timestamp: new Date().toISOString()
-                        });
-                    } catch (error) {
-                        const errorMessage = "Sorry, I couldn't fetch your wallet activity right now. Please try again.";
-                        speakText(errorMessage);
-                        return res.status(500).json({
-                            success: false,
-                            error: "Failed to get wallet activity",
-                            message: error instanceof Error ? error.message : "Unknown error"
-                        });
-                    }
-                
-                case 'TRANSFER_ETH':
-                    try {
-                        // Use our new transfer service to process the command naturally
-                        const transferResult = await physicalWalletService.processTransferCommand(text);
-                        
-                        if (transferResult.success) {
-                            const successMessage = transferResult.spokenMessage || `Successfully transferred ETH. Transaction hash: ${transferResult.transactionHash}`;
-                            
-                            return res.json({
-                                success: true,
-                                user_input: text,
-                                action_performed: 'TRANSFER_ETH',
-                                pluto_response: successMessage,
-                                transfer: transferResult,
-                                timestamp: new Date().toISOString()
-                            });
-                        } else {
-                            const errorMessage = transferResult.spokenMessage || `Transfer failed: ${transferResult.error}`;
-                            
-                            return res.status(400).json({
-                                success: false,
-                                error: "Transfer failed",
-                                message: errorMessage,
-                                transfer_details: transferResult,
-                                timestamp: new Date().toISOString()
-                            });
-                        }
-                    } catch (error) {
-                        const errorMessage = "Had trouble processing your transfer. Please try again.";
-                        speakText(errorMessage);
-                        return res.status(500).json({
-                            success: false,
-                            error: "Failed to process transfer",
-                            message: error instanceof Error ? error.message : "Unknown error"
-                        });
-                    }
-                
-                default:
-                    // For other actions, provide guidance
-                    const guidanceMessage = intentAnalysis.textResponse || "I understand what you want to do, but I need more information to help you.";
-                    speakText(guidanceMessage);
-                    
-                    return res.json({
-                        success: true,
-                        user_input: text,
-                        action_detected: intentAnalysis.action,
-                        pluto_response: guidanceMessage,
-                        timestamp: new Date().toISOString()
-                    });
-            }
-        } else {
-            // Normal GPT response for general conversation
-            const plutoResponse = intentAnalysis.textResponse || await gptService.getResponse(text);
-            speakText(plutoResponse);
-            
-            return res.json({
-                success: true,
-                user_input: text,
-                pluto_response: plutoResponse,
-                timestamp: new Date().toISOString()
-            });
-        }
     } catch (error) {
-        console.error("Error processing request:", error);
-        const errorMessage = "Sorry, I'm having some network issues. Please try again.";
+        console.error("Error processing voice command:", error);
+        const errorMessage = "Sorry, I'm having some technical difficulties. Please try again.";
+        
+        await uiSyncService.showErrorState(errorMessage);
         speakText(errorMessage);
         
         return res.status(500).json({
             success: false,
             error: "Internal server error",
-            message: error instanceof Error ? error.message : "Unknown error"
+            message: error instanceof Error ? error.message : "Unknown error",
+            continue_listening: true,
+            timestamp: new Date().toISOString()
         });
     }
 });
 
+// Session Management Endpoints
+
+// Check session status
+app.get("/session/:sessionId/status", (req: Request, res: Response) => {
+    const { sessionId } = req.params;
+    
+    if (!sessionId) {
+        return res.status(400).json({ error: "Session ID is required" });
+    }
+    
+    const isActive = conversationManager.isSessionActive(sessionId);
+    const context = conversationManager.getOrCreateContext(sessionId);
+    
+    res.json({
+        success: true,
+        sessionId,
+        isActive,
+        lastInteraction: context.lastInteraction,
+        conversationLength: context.conversationHistory.length,
+        currentTopic: context.currentTopic,
+        awaitingConfirmation: !!context.awaitingConfirmation,
+        timestamp: new Date().toISOString()
+    });
+});
+
+// End session
+app.post("/session/:sessionId/end", async (req: Request, res: Response) => {
+    const { sessionId } = req.params;
+    
+    if (!sessionId) {
+        return res.status(400).json({ error: "Session ID is required" });
+    }
+    
+    conversationManager.endSession(sessionId);
+    await uiSyncService.clearDisplay();
+    
+    res.json({
+        success: true,
+        message: `Session ${sessionId} ended successfully`,
+        sessionId,
+        timestamp: new Date().toISOString()
+    });
+});
+
+// Get conversation history
+app.get("/session/:sessionId/history", (req: Request, res: Response) => {
+    const { sessionId } = req.params;
+    
+    if (!sessionId) {
+        return res.status(400).json({ error: "Session ID is required" });
+    }
+    
+    const limit = parseInt(req.query.limit as string) || 20;
+    const context = conversationManager.getOrCreateContext(sessionId);
+    const history = context.conversationHistory.slice(-limit);
+    
+    res.json({
+        success: true,
+        sessionId,
+        history,
+        totalInteractions: context.conversationHistory.length,
+        timestamp: new Date().toISOString()
+    });
+});
+
+// Update user preferences for session
+app.post("/session/:sessionId/preferences", (req: Request, res: Response) => {
+    const { sessionId } = req.params;
+    const preferences = req.body;
+    
+    if (!sessionId) {
+        return res.status(400).json({ error: "Session ID is required" });
+    }
+    
+    conversationManager.updateUserPreferences(sessionId, preferences);
+    
+    res.json({
+        success: true,
+        message: "Preferences updated successfully",
+        sessionId,
+        preferences,
+        timestamp: new Date().toISOString()
+    });
+});
+
+// Get active sessions count
+app.get("/sessions/stats", (req: Request, res: Response) => {
+    const activeCount = conversationManager.getActiveSessionCount();
+    
+    res.json({
+        success: true,
+        activeSessionCount: activeCount,
+        timestamp: new Date().toISOString()
+    });
+});
+
 app.get('/', (req: Request, res: Response) => {
-    res.send('GET request to the homepage - Pluto Blockchain Helper Server');
+    res.send('GET request to the homepage - Pluto Blockchain Helper Server with Enhanced Voice Commands');
 });
 
 app.post("/echo", (req: Request, res: Response) => {
