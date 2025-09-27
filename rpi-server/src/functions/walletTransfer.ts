@@ -12,6 +12,23 @@ export interface TransferRequest {
     fromWalletIndex?: number;
 }
 
+export interface ParsedTransferInfo {
+    request?: TransferRequest;
+    missingInfo?: {
+        needsAmount?: boolean;
+        needsRecipient?: boolean;
+        needsChain?: boolean;
+        needsCurrency?: boolean;
+    };
+    suggestedValues?: {
+        amount?: string;
+        recipient?: string;
+        chainName?: string;
+        currency?: string;
+    };
+    conversationalResponse?: string;
+}
+
 export interface TransferValidation {
     isValid: boolean;
     error?: string;
@@ -20,7 +37,20 @@ export interface TransferValidation {
 }
 
 export class WalletTransferService {
-    static parseTransferCommand(command: string): TransferRequest | null {
+    
+    // Word to number mapping for natural language processing
+    static readonly WORD_TO_NUMBER: { [key: string]: string } = {
+        'zero': '0', 'one': '1', 'two': '2', 'three': '3', 'four': '4', 'five': '5',
+        'six': '6', 'seven': '7', 'eight': '8', 'nine': '9', 'ten': '10',
+        'eleven': '11', 'twelve': '12', 'thirteen': '13', 'fourteen': '14', 'fifteen': '15',
+        'sixteen': '16', 'seventeen': '17', 'eighteen': '18', 'nineteen': '19', 'twenty': '20',
+        'thirty': '30', 'forty': '40', 'fifty': '50', 'sixty': '60', 'seventy': '70',
+        'eighty': '80', 'ninety': '90', 'hundred': '100', 'thousand': '1000',
+        // Common fractions
+        'half': '0.5', 'quarter': '0.25', 'third': '0.33', 'tenth': '0.1'
+    };
+
+    static parseTransferCommandEnhanced(command: string): ParsedTransferInfo {
         try {
             console.log(`🎯 Parsing command: "${command}"`);
             
@@ -30,58 +60,55 @@ export class WalletTransferService {
             let chainName: string = '';
             let currency: string = '';
             
+            const missingInfo = {
+                needsAmount: false,
+                needsRecipient: false,
+                needsChain: false,
+                needsCurrency: false
+            };
+            
+            // Word-to-number conversion
+            let processedCommand = normalizedCommand;
+            for (const [word, number] of Object.entries(this.WORD_TO_NUMBER)) {
+                const regex = new RegExp(`\\b${word}\\b`, 'gi');
+                processedCommand = processedCommand.replace(regex, number);
+            }
+            
             // Define chain mappings
             const chainMappings: { [key: string]: string } = {
-                // Ethereum
-                'ethereum': 'ethereum',
-                'eth': 'ethereum', 
-                'mainnet': 'ethereum',
-                'sepolia': 'sepolia',
-                'testnet': 'sepolia',
-                'goerli': 'goerli',
-                
-                // Binance Smart Chain
-                'binance': 'bsc',
-                'bsc': 'bsc',
-                'bnb': 'bsc',
-                'smartchain': 'bsc',
-                
-                // Base
-                'base': 'base',
-                'coinbase': 'base',
-                
-                // Polygon
-                'polygon': 'polygon',
-                'matic': 'polygon',
-                'poly': 'polygon',
-                
-                // Arbitrum
-                'arbitrum': 'arbitrum',
-                'arb': 'arbitrum',
-                
-                // Optimism
-                'optimism': 'optimism',
-                'op': 'optimism'
+                'ethereum': 'ethereum', 'eth': 'ethereum', 'mainnet': 'ethereum',
+                'sepolia': 'sepolia', 'testnet': 'sepolia', 'goerli': 'goerli',
+                'binance': 'bsc', 'bsc': 'bsc', 'bnb': 'bsc', 'smartchain': 'bsc',
+                'base': 'base', 'coinbase': 'base',
+                'polygon': 'polygon', 'matic': 'polygon', 'poly': 'polygon',
+                'arbitrum': 'arbitrum', 'arb': 'arbitrum',
+                'optimism': 'optimism', 'op': 'optimism'
             };
             
             // Define currency mappings
             const currencyMappings: { [key: string]: string } = {
-                'eth': 'ETH',
-                'ethereum': 'ETH',
-                'ether': 'ETH',
-                'bnb': 'BNB',
-                'binance': 'BNB',
-                'matic': 'MATIC',
-                'polygon': 'MATIC'
+                'eth': 'ETH', 'ethereum': 'ETH', 'ether': 'ETH',
+                'bnb': 'BNB', 'binance': 'BNB',
+                'matic': 'MATIC', 'polygon': 'MATIC'
             };
             
-            const numberMatches = normalizedCommand.match(/\b(\d+(?:\.\d+)?)\b/g);
+            // Extract numbers (now includes word-converted ones)
+            const numberMatches = processedCommand.match(/\b(\d+(?:\.\d+)?)\b/g);
             console.log(`🔢 Found numbers: ${numberMatches?.join(', ') || 'none'}`);
             
-            const words = normalizedCommand.replace(/[^\w\s]/g, '').split(/\s+/).filter(w => w.length > 0);
+            const words = processedCommand.replace(/[^\w\s]/g, '').split(/\s+/).filter(w => w.length > 0);
             console.log(`📝 Words: ${words.join(', ')}`);
             
-            // Detect chain name
+            // Extract amount
+            if (numberMatches && numberMatches.length > 0) {
+                amount = numberMatches[0];
+                console.log(`💰 Found amount: ${amount}`);
+            } else {
+                missingInfo.needsAmount = true;
+                console.log('❌ No amount found');
+            }
+            
+            // Extract chain name
             for (const word of words) {
                 if (chainMappings[word]) {
                     chainName = chainMappings[word];
@@ -91,16 +118,23 @@ export class WalletTransferService {
             }
             
             // Special pattern: "on [chain]"
-            const onChainMatch = normalizedCommand.match(/\bon\s+(\w+)/i);
-            if (onChainMatch && onChainMatch[1]) {
-                const chainKey = onChainMatch[1].toLowerCase();
-                if (chainMappings[chainKey]) {
-                    chainName = chainMappings[chainKey];
-                    console.log(`🎯 Found "on chain" pattern: ${onChainMatch[1]} → ${chainName}`);
+            if (!chainName) {
+                const onChainMatch = processedCommand.match(/\bon\s+(\w+)/i);
+                if (onChainMatch && onChainMatch[1]) {
+                    const chainKey = onChainMatch[1].toLowerCase();
+                    if (chainMappings[chainKey]) {
+                        chainName = chainMappings[chainKey];
+                        console.log(`🎯 Found "on chain" pattern: ${onChainMatch[1]} → ${chainName}`);
+                    }
                 }
             }
             
-            // Detect currency
+            if (!chainName) {
+                missingInfo.needsChain = true;
+                console.log('❌ No chain found');
+            }
+            
+            // Extract currency
             for (const word of words) {
                 if (currencyMappings[word]) {
                     currency = currencyMappings[word];
@@ -109,33 +143,29 @@ export class WalletTransferService {
                 }
             }
             
-            // Default currency to ETH if not specified
             if (!currency) {
+                // Default to ETH but mark as needing clarification
                 currency = 'ETH';
-                console.log(`💱 Default currency: ${currency}`);
+                missingInfo.needsCurrency = true;
+                console.log(`💱 Defaulting to currency: ${currency} (needs confirmation)`);
             }
             
-            // If no chain specified, return null (chain is now mandatory)
-            if (!chainName) {
-                console.log('❌ No chain specified - chain is mandatory for transfers');
-                return null;
-            }
-            
+            // Extract recipient
             const potentialNames: string[] = [];
             const excludeWords = [
-                'transfer', 'send', 'move', 'to', 'from', 'the', 'a', 'an', 'and', 'or', 'but', 'with', 'for', 'at', 'in', 'on', 'by',
-                'please', 'can', 'you', 'could', 'would', 'will', 'i', 'me', 'my', 'we', 'us', 'our',
-                'eth', 'ethereum', 'ether', 'coin', 'token', 'crypto', 'currency', 'bnb', 'binance', 'matic', 'polygon',
-                'hey', 'heyy', 'hi', 'hello', 'buddy', 'friend', 'mate',
-                'want', 'need', 'like', 'should', 'must', 'have', 'get', 'make', 'do',
-                'some', 'any', 'all', 'one', 'two', 'three', 'much', 'many', 'more', 'less',
-                'chain', 'network', 'mainnet', 'testnet', 'sepolia', 'goerli', 'base', 'arbitrum', 'optimism', 'bsc', 'smartchain'
+                'transfer', 'send', 'move', 'to', 'from', 'the', 'a', 'an', 'and', 'or', 'but', 
+                'with', 'for', 'at', 'in', 'on', 'by', 'please', 'can', 'you', 'could', 'would', 
+                'will', 'i', 'me', 'my', 'we', 'us', 'our', 'hey', 'hi', 'hello', 'want', 'need', 
+                'like', 'should', 'must', 'have', 'get', 'make', 'do', 'some', 'any', 'all',
+                'much', 'many', 'more', 'less', 'chain', 'network', 'mainnet', 'testnet', 'it'
             ];
             
             for (const word of words) {
                 const cleanWord = word.replace(/[^\w]/g, '').toLowerCase();
                 if (cleanWord.length >= 2 && 
                     !excludeWords.includes(cleanWord) && 
+                    !chainMappings[cleanWord] &&
+                    !currencyMappings[cleanWord] &&
                     !/^\d/.test(cleanWord) && 
                     cleanWord.length <= 20) {
                     potentialNames.push(cleanWord);
@@ -144,52 +174,42 @@ export class WalletTransferService {
             
             console.log(`👤 Potential names: ${potentialNames.join(', ')}`);
             
-            if (numberMatches && numberMatches.length > 0) {
-                amount = numberMatches[0];
-                console.log(`💰 Selected amount: ${amount}`);
-            } else {
-                console.log('❌ No amount found');
-                return null;
-            }
-            
-            if (potentialNames.length > 0) {
-                const toMatch = normalizedCommand.match(/\bto\s+([a-zA-Z]+)/i);
-                if (toMatch && toMatch[1]) {
-                    const nameAfterTo = toMatch[1].toLowerCase().replace(/[^\w]/g, '');
-                    if (potentialNames.includes(nameAfterTo)) {
-                        recipient = `${nameAfterTo}.eth`;
-                        console.log(`🎯 Found name after "to": ${nameAfterTo} → ${recipient}`);
+            // Look for recipient after "to"
+            const toMatch = processedCommand.match(/\bto\s+([a-zA-Z]+)/i);
+            if (toMatch && toMatch[1]) {
+                const nameAfterTo = toMatch[1].toLowerCase().replace(/[^\w]/g, '');
+                recipient = `${nameAfterTo}.eth`;
+                console.log(`🎯 Found name after "to": ${nameAfterTo} → ${recipient}`);
+            } else if (potentialNames.length > 0) {
+                // Pick the best candidate name
+                const commonNames = ['alex', 'alice', 'bob', 'charlie', 'david', 'emma', 'frank', 
+                                   'grace', 'henry', 'ivy', 'jack', 'kate', 'liam', 'mia', 'noah', 
+                                   'olivia', 'peter', 'quinn', 'ryan', 'sara', 'vitalik', 'satoshi', 
+                                   'nick', 'joe', 'max', 'sam', 'tom', 'ben', 'dan', 'tim', 'bhargav'];
+                
+                let bestName = '';
+                let bestScore = 0;
+                
+                for (const name of potentialNames) {
+                    let score = name.length;
+                    if (commonNames.includes(name)) {
+                        score += 10;
+                    }
+                    if (score > bestScore) {
+                        bestScore = score;
+                        bestName = name;
                     }
                 }
                 
-                if (!recipient) {
-                    const commonNames = ['alex', 'alice', 'bob', 'charlie', 'david', 'emma', 'frank', 'grace', 'henry', 'ivy', 
-                                       'jack', 'kate', 'liam', 'mia', 'noah', 'olivia', 'peter', 'quinn', 'ryan', 'sara',
-                                       'vitalik', 'satoshi', 'nick', 'joe', 'max', 'sam', 'tom', 'ben', 'dan', 'tim'];
-                    
-                    let bestName = '';
-                    let bestScore = 0;
-                    
-                    for (const name of potentialNames) {
-                        let score = name.length;
-                        if (commonNames.includes(name)) {
-                            score += 10;
-                        }
-                        if (score > bestScore) {
-                            bestScore = score;
-                            bestName = name;
-                        }
-                    }
-                    
-                    if (bestName) {
-                        recipient = `${bestName}.eth`;
-                        console.log(`🏆 Best candidate: ${bestName} → ${recipient} (score: ${bestScore})`);
-                    }
+                if (bestName) {
+                    recipient = `${bestName}.eth`;
+                    console.log(`🏆 Best candidate: ${bestName} → ${recipient} (score: ${bestScore})`);
                 }
             }
             
+            // Look for Ethereum address
             if (!recipient) {
-                const addressMatch = normalizedCommand.match(/(0x[a-fA-F0-9]{40})/i);
+                const addressMatch = processedCommand.match(/(0x[a-fA-F0-9]{40})/i);
                 if (addressMatch && addressMatch[1]) {
                     recipient = addressMatch[1].toLowerCase();
                     console.log(`📍 Found Ethereum address: ${recipient}`);
@@ -197,25 +217,74 @@ export class WalletTransferService {
             }
             
             if (!recipient) {
+                missingInfo.needsRecipient = true;
                 console.log('❌ No recipient found');
-                return null;
             }
             
-            const result = {
-                amount,
-                recipient,
-                chainName,
-                currency,
-                fromWalletIndex: 0
-            };
+            // Generate conversational response based on what's missing
+            let conversationalResponse = '';
+            const missing = [];
+            if (missingInfo.needsAmount) missing.push('amount');
+            if (missingInfo.needsRecipient) missing.push('recipient');
+            if (missingInfo.needsChain) missing.push('blockchain network');
             
-            console.log(`✅ Parsed result:`, result);
-            return result;
+            if (missing.length > 0) {
+                if (missing.length === 1) {
+                    if (missingInfo.needsAmount) {
+                        conversationalResponse = `I understand you want to transfer to ${recipient || 'someone'}, but I need to know how much. Could you tell me the amount? For example, "1 ETH" or "0.5 ETH"?`;
+                    } else if (missingInfo.needsRecipient) {
+                        conversationalResponse = `I see you want to transfer ${amount} ${currency}, but I need to know who to send it to. Could you provide the recipient's name or ENS address?`;
+                    } else if (missingInfo.needsChain) {
+                        conversationalResponse = `Great! I understand you want to send ${amount} ${currency} to ${recipient}. Which blockchain network would you like to use? I support Ethereum, Base, Polygon, Arbitrum, and others.`;
+                    }
+                } else {
+                    conversationalResponse = `I'd be happy to help with the transfer! However, I need a bit more information. Please specify: ${missing.join(', ')}. For example, you could say "transfer 1 ETH to alice on ethereum".`;
+                }
+            }
+            
+            // If we have everything, create the complete request
+            if (!missingInfo.needsAmount && !missingInfo.needsRecipient && !missingInfo.needsChain) {
+                const request: TransferRequest = {
+                    amount,
+                    recipient,
+                    chainName,
+                    currency,
+                    fromWalletIndex: 0
+                };
+                
+                console.log(`✅ Complete transfer request:`, request);
+                return { 
+                    request,
+                    conversationalResponse: `Perfect! I understand you want to transfer ${amount} ${currency} to ${recipient} on ${chainName}. Let me process that for you.`
+                };
+            }
+            
+            // Return partial info with what we found
+            const suggestedValues: { amount?: string; recipient?: string; chainName?: string; currency?: string; } = {};
+            if (amount) suggestedValues.amount = amount;
+            if (recipient) suggestedValues.recipient = recipient;
+            if (chainName) suggestedValues.chainName = chainName;
+            else suggestedValues.chainName = 'ethereum'; // Default suggestion
+            if (currency) suggestedValues.currency = currency;
+            else suggestedValues.currency = 'ETH';
+            
+            return {
+                missingInfo,
+                suggestedValues,
+                conversationalResponse
+            };
             
         } catch (error) {
             console.error('Error parsing transfer command:', error);
-            return null;
+            return {
+                conversationalResponse: "I'm sorry, I had trouble understanding that. Could you please rephrase your transfer request? Try something like 'transfer 1 ETH to alice on ethereum'."
+            };
         }
+    }
+
+    static parseTransferCommand(command: string): TransferRequest | null {
+        const result = this.parseTransferCommandEnhanced(command);
+        return result.request || null;
     }
 
     static async validateTransfer(request: TransferRequest): Promise<TransferValidation> {

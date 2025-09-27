@@ -12,10 +12,13 @@ import {
   getRecentPumpfunEvents,
   getPumpfunEventsByType,
   getPumpfunTokenStats,
+  getPumpfunSwapsByDirection,
+  getPumpfunTokenTradingStats,
   pool
 } from './db/index.js';
 import { startMarketDataStream } from './market/index.js';
 import { startPumpfunEventStream } from './pumpfun/index.js';
+import { startCronJob } from './db/cronjob.js';
 import axios from 'axios';
 
 const app = express();
@@ -351,9 +354,12 @@ app.get('/api/pumpfun/events/recent', async (req, res) => {
   try {
     const limit = parseInt(req.query.limit) || 100;
     const eventType = req.query.type;
+    const direction = req.query.direction; // buy or sell
 
     let events;
-    if (eventType) {
+    if (direction) {
+      events = await getPumpfunSwapsByDirection(direction, limit);
+    } else if (eventType) {
       events = await getPumpfunEventsByType(eventType, limit);
     } else {
       events = await getRecentPumpfunEvents(limit);
@@ -373,15 +379,48 @@ app.get('/api/pumpfun/events/recent', async (req, res) => {
   }
 });
 
+// Get Pumpfun swaps by direction (buy/sell)
+app.get('/api/pumpfun/swaps/:direction', async (req, res) => {
+  try {
+    const { direction } = req.params;
+    const limit = parseInt(req.query.limit) || 100;
+
+    if (!['buy', 'sell'].includes(direction)) {
+      return res.status(400).json({
+        error: 'Invalid direction',
+        message: 'Direction must be either "buy" or "sell"'
+      });
+    }
+
+    const events = await getPumpfunSwapsByDirection(direction, limit);
+
+    res.json({
+      success: true,
+      data: events,
+      count: events.length
+    });
+  } catch (error) {
+    console.error('Error fetching Pumpfun swaps by direction:', error);
+    res.status(500).json({
+      error: 'Internal server error',
+      message: error.message
+    });
+  }
+});
+
 // Get Pumpfun token statistics
 app.get('/api/pumpfun/token/:address/stats', async (req, res) => {
   try {
     const { address } = req.params;
-    const stats = await getPumpfunTokenStats(address);
+    const basicStats = await getPumpfunTokenStats(address);
+    const tradingStats = await getPumpfunTokenTradingStats(address);
 
     res.json({
       success: true,
-      data: stats
+      data: {
+        basic: basicStats,
+        trading: tradingStats
+      }
     });
   } catch (error) {
     console.error('Error fetching Pumpfun token stats:', error);
@@ -557,6 +596,10 @@ const startServer = async () => {
     startPumpfunEventStream();
     console.log('Pumpfun events stream started');
 
+    // Start the data cleanup cronjob
+    startCronJob();
+    console.log('Data cleanup cronjob started');
+
     app.listen(PORT, () => {
       console.log(`Substream server running on port ${PORT}`);
       console.log(`Health check: http://localhost:${PORT}/health`);
@@ -566,7 +609,8 @@ const startServer = async () => {
       console.log(`- GET /api/market/all - Get all latest market data`);
       console.log(`- GET /api/pumpfun/token/:address/events - Get Pumpfun events for token`);
       console.log(`- GET /api/pumpfun/user/:address/events - Get Pumpfun events for user`);
-      console.log(`- GET /api/pumpfun/events/recent - Get recent Pumpfun events`);
+      console.log(`- GET /api/pumpfun/events/recent?direction=buy|sell - Get recent Pumpfun events`);
+      console.log(`- GET /api/pumpfun/swaps/:direction - Get swaps by direction (buy/sell)`);
       console.log(`- GET /api/pumpfun/token/:address/stats - Get Pumpfun token statistics`);
       console.log(`- POST /api/rpc - RPC endpoint for integrations`);
     });

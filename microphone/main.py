@@ -13,6 +13,8 @@ import speech_recognition as sr
 from dotenv import load_dotenv
 from typing import List, Optional, Tuple
 
+from utils.display import show_display_message
+
 # Add the project path
 sys.path.append(os.path.dirname(__file__))
 
@@ -29,7 +31,7 @@ class EnhancedAudioInput:
         # Optimize settings for wake word detection
         self.recognizer.energy_threshold = 200  # Lower for better sensitivity
         self.recognizer.dynamic_energy_threshold = True
-        self.recognizer.pause_threshold = 0.6   # Shorter pause
+        self.recognizer.pause_threshold = 0.9   # Shorter pause
         self.recognizer.phrase_threshold = 0.3  # Quick detection
         self.recognizer.non_speaking_duration = 0.3
         
@@ -234,12 +236,12 @@ class EnhancedAudioInput:
                 time.sleep(0.5)
                 continue
 
-    def listen_until_silence(self, timeout: int = 100) -> Optional[sr.AudioData]:
+    def listen_until_silence(self, timeout: int = 3000) -> Optional[sr.AudioData]:
         """Listen for audio until silence is detected."""
         try:
             with self.microphone as source:
                 print("🎤 Listening for command... (speak now)")
-                audio = self.recognizer.listen(source, timeout=timeout, phrase_time_limit=100)
+                audio = self.recognizer.listen(source, timeout=timeout, phrase_time_limit=3000)
                 print("✅ Audio captured")
                 return audio
         except sr.WaitTimeoutError:
@@ -371,13 +373,14 @@ class PlutoWalletAssistant:
                 
                 if wake_detected:
                     print("🎤 Wake word detected. Start speaking...")
-                    
+                    show_display_message({"emotion": "wave", "text": "Listening!.."})
                     # Listen for command
                     audio_data = self.audio.listen_until_silence()
                     text = self.audio.transcribe(audio_data)
                     
                     if text:
                         print(f"👤 You said: {text}")
+                        show_display_message()
                         
                         # Check for exit
                         if any(exit_word in text.lower() for exit_word in ['exit', 'quit', 'goodbye', 'stop']):
@@ -617,14 +620,21 @@ if __name__ == "__main__":
             # Enhanced wake word detection - will detect all variations
             woke = audio.listen_for_wake_word(["hey pluto"])
             if woke:
-                print("\n🟢 Wake word detected! Start speaking...")
+                print("Wake word detected! Start speaking...")
+                show_display_message({"emotion": "wave", "text": "Listening!.."})
                 audio_data = audio.listen_until_silence()
                 text = audio.transcribe(audio_data)
                 
                 if text:
-                    print(f"👤 You said: {text}")
-                    
-                    # Check for exit commands first
+                    print(f"You said: {text}")
+                    show_display_message()
+                    url = "http://172.30.142.11:3000/"  # Your API endpoint
+                    payload = {"text": text}
+                    try:
+                        response = requests.post(url, json=payload)
+                        print(f"API response: {response.text}")
+                    except Exception as api_err:
+                        print(f"API call failed: {api_err}")
                     if any(exit_word in text.lower() for exit_word in ['exit', 'quit', 'goodbye', 'stop']):
                         print("👋 Exiting Pluto Assistant...")
                         break

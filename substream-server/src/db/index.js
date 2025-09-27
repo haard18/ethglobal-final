@@ -63,6 +63,17 @@ export const initDatabase = async () => {
       )
     `);
 
+    // Add indexes for better query performance
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_pumpfun_events_event_type_direction 
+      ON pumpfun_events USING gin ((metadata->'direction'))
+    `);
+
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_pumpfun_events_metadata_bonding_curve 
+      ON pumpfun_events USING gin ((metadata->'bondingCurve'))
+    `);
+
     // Create indexes for faster queries
     await client.query(`
       CREATE INDEX IF NOT EXISTS idx_market_data_token_address ON market_data(token_address);
@@ -354,6 +365,59 @@ export const getPumpfunEventsByType = async (eventType, limit = 100) => {
     return result.rows;
   } catch (error) {
     console.error('Error getting Pumpfun events by type:', error);
+    throw error;
+  } finally {
+    client.release();
+  }
+};
+
+// Get Pumpfun swap events by direction (buy/sell)
+export const getPumpfunSwapsByDirection = async (direction, limit = 100) => {
+  const client = await pool.connect();
+  try {
+    const query = `
+      SELECT * FROM pumpfun_events 
+      WHERE event_type LIKE 'swap_%' 
+      AND metadata->>'direction' = $1 
+      ORDER BY timestamp DESC 
+      LIMIT $2
+    `;
+    
+    const result = await client.query(query, [direction, limit]);
+    return result.rows;
+  } catch (error) {
+    console.error('Error getting Pumpfun swaps by direction:', error);
+    throw error;
+  } finally {
+    client.release();
+  }
+};
+
+// Get Pumpfun token trading volume and statistics
+export const getPumpfunTokenTradingStats = async (tokenAddress) => {
+  const client = await pool.connect();
+  try {
+    const query = `
+      SELECT 
+        COUNT(*) FILTER (WHERE event_type = 'swap_buy') as buy_count,
+        COUNT(*) FILTER (WHERE event_type = 'swap_sell') as sell_count,
+        SUM(CAST(amount AS DECIMAL)) FILTER (WHERE event_type = 'swap_buy') as total_buy_amount,
+        SUM(CAST(amount AS DECIMAL)) FILTER (WHERE event_type = 'swap_sell') as total_sell_amount,
+        SUM(CAST(sol_amount AS DECIMAL)) FILTER (WHERE event_type = 'swap_buy') as total_buy_sol,
+        SUM(CAST(sol_amount AS DECIMAL)) FILTER (WHERE event_type = 'swap_sell') as total_sell_sol,
+        COUNT(DISTINCT user_address) as unique_traders,
+        MAX(timestamp) as last_trade_time,
+        MIN(timestamp) as first_trade_time,
+        AVG(CAST(sol_amount AS DECIMAL)) FILTER (WHERE event_type LIKE 'swap_%') as avg_trade_size_sol
+      FROM pumpfun_events 
+      WHERE token_address = $1 
+      AND event_type LIKE 'swap_%'
+    `;
+    
+    const result = await client.query(query, [tokenAddress]);
+    return result.rows[0];
+  } catch (error) {
+    console.error('Error getting Pumpfun token trading stats:', error);
     throw error;
   } finally {
     client.release();

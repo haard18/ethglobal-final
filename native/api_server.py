@@ -85,7 +85,7 @@ class APIEmotionalDisplay:
             "sad": {'width': 20, 'height': 44, 'offset_y': 3},
             "mischievous": {'width': 14, 'height': 32, 'offset_y': 2},
             "sideeye": {'width': 20, 'height': 40, 'offset_y': 0},
-            "wave" : {}
+            "wave": {'width': 20, 'height': 40, 'offset_y': 0}
         }
 
     def draw_wave(self, draw):
@@ -375,6 +375,7 @@ class APIEmotionalDisplay:
         """Background thread for controlling emotion changes (only in eyes mode)."""
         emotion_list = list(self.emotions.keys())
         emotion_list.remove("sideeye")  # Handle separately
+        emotion_list.remove("wave")  # Handle separately - API only
         
         while self.running:
             sleep_time = random.uniform(4, 8)
