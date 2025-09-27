@@ -570,6 +570,58 @@ app.get("/pyth/validate/:asset", (req: Request, res: Response) => {
     }
 });
 
+app.post("/pyth/update-onchain", async (req: Request, res: Response) => {
+    try {
+        const { providerUrl, pythContractAddress, walletPrivateKey, priceIds, hermesEndpoint }: PythUpdateRequest = req.body;
+        
+        if (!providerUrl || !pythContractAddress || !walletPrivateKey || !priceIds) {
+            return res.status(400).json({
+                success: false,
+                error: "Bad Request",
+                message: "providerUrl, pythContractAddress, walletPrivateKey, and priceIds are required"
+            });
+        }
+        
+        if (!Array.isArray(priceIds) || priceIds.length === 0) {
+            return res.status(400).json({
+                success: false,
+                error: "Bad Request",
+                message: "priceIds must be a non-empty array"
+            });
+        }
+        
+        const tx = await PythNetworkOracle.updatePricesOnChain(
+            providerUrl,
+            pythContractAddress,
+            walletPrivateKey,
+            priceIds,
+            hermesEndpoint
+        );
+        
+        res.json({
+            success: true,
+            message: "Price update transaction submitted",
+            transaction: {
+                hash: tx.hash,
+                from: tx.from,
+                to: tx.to,
+                value: tx.value?.toString() || "0",
+                gasLimit: tx.gasLimit?.toString(),
+                gasPrice: tx.gasPrice?.toString()
+            },
+            priceIds,
+            timestamp: new Date().toISOString()
+        });
+    } catch (error) {
+        console.error("Error updating prices on-chain:", error);
+        res.status(500).json({
+            success: false,
+            error: "Failed to update prices on-chain",
+            message: error instanceof Error ? error.message : "Unknown error"
+        });
+    }
+});
+
 // Routes
 app.post("/", async (req: Request, res: Response) => {
     const { text } = req.body;

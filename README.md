@@ -153,6 +153,99 @@ curl "http://localhost:3000/pyth/compare?asset1=ETH/USD&asset2=BTC/USD&hermes=ht
 }
 ```
 
+### 5. Update Prices On-Chain
+Updates Pyth price feeds on the blockchain by submitting price update data to a Pyth contract.
+
+**Endpoint:** `POST /pyth/update-onchain`
+
+**Request Body:**
+```json
+{
+  "providerUrl": "https://your-rpc-endpoint.com",
+  "pythContractAddress": "0x4305fb66699c3b2702d4d05cf36551390a4c69c6",
+  "walletPrivateKey": "your-private-key",
+  "priceIds": [
+    "0xff61491a931112ddf1bd8147cd1b641375f79f5825126d665480874634fd0ace",
+    "0xe62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43"
+  ],
+  "hermesEndpoint": "https://hermes.pyth.network"
+}
+```
+
+**Example Request:**
+```bash
+curl -X POST "http://localhost:3000/pyth/update-onchain" \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"providerUrl\": \"${RPC_URL}\",
+    \"pythContractAddress\": \"${PYTH_CONTRACT}\",
+    \"walletPrivateKey\": \"${PRIVATE_KEY}\",
+    \"priceIds\": [
+      \"0xff61491a931112ddf1bd8147cd1b641375f79f5825126d665480874634fd0ace\",
+      \"0xe62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43\"
+    ],
+    \"hermesEndpoint\": \"https://hermes.pyth.network\"
+  }"
+```
+
+**Success Response:**
+```json
+{
+  "success": true,
+  "message": "Prices updated on-chain successfully",
+  "transaction": {
+    "hash": "0x1234567890abcdef...",
+    "from": "0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266",
+    "to": "0x4305fb66699c3b2702d4d05cf36551390a4c69c6",
+    "value": "2",
+    "gasLimit": "300000",
+    "gasPrice": "20000000000"
+  },
+  "priceIds": [...],
+  "timestamp": "2025-09-27T05:35:02.574Z"
+}
+```
+
+**Error Response (Insufficient Funds):**
+```json
+{
+  "success": false,
+  "error": "Failed to update prices on-chain",
+  "message": "Failed to update prices on-chain: Error: insufficient funds (transaction={...}, info={...})"
+}
+```
+
+**Requirements for On-Chain Updates:**
+- Valid RPC endpoint URL
+- Deployed Pyth contract address
+- Wallet private key with sufficient funds for gas fees
+- Valid price feed IDs
+
+### 6. Get On-Chain Price
+Fetches price data directly from the Pyth contract on the blockchain.
+
+**Endpoint:** `POST /pyth/onchain-price`
+
+**Request Body:**
+```json
+{
+  "providerUrl": "https://your-rpc-endpoint.com",
+  "pythContractAddress": "0x4305fb66699c3b2702d4d05cf36551390a4c69c6",
+  "priceId": "0xff61491a931112ddf1bd8147cd1b641375f79f5825126d665480874634fd0ace"
+}
+```
+
+**Example Request:**
+```bash
+curl -X POST "http://localhost:3000/pyth/onchain-price" \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"providerUrl\": \"${RPC_URL}\",
+    \"pythContractAddress\": \"${PYTH_CONTRACT}\",
+    \"priceId\": \"0xff61491a931112ddf1bd8147cd1b641375f79f5825126d665480874634fd0ace\"
+  }"
+```
+
 ## Supported Assets
 
 The following cryptocurrency pairs are currently supported:
@@ -227,6 +320,37 @@ The API returns appropriate HTTP status codes:
 - `404 Not Found`: Asset not found or not supported
 - `500 Internal Server Error`: Server-side error
 
+### Common Error Scenarios
+
+**Insufficient Funds (On-Chain Operations):**
+When making on-chain price updates, ensure the wallet has sufficient ETH for gas fees:
+
+```json
+{
+  "success": false,
+  "error": "Failed to update prices on-chain",
+  "message": "insufficient funds for gas * price + value: have 0 want 2"
+}
+```
+
+**Invalid Asset Symbol:**
+```json
+{
+  "success": false,
+  "error": "Not Found",
+  "message": "Price data not found for asset: INVALID/USD"
+}
+```
+
+**Missing Required Fields:**
+```json
+{
+  "success": false,
+  "error": "Bad Request",
+  "message": "assetSymbol is required"
+}
+```
+
 ## Rate Limiting
 
 Please be mindful of rate limits when making requests to avoid overwhelming the Pyth Network's Hermes API.
@@ -249,7 +373,38 @@ curl -X POST "http://localhost:3000/pyth/prices" \
 
 # Compare two assets
 curl "http://localhost:3000/pyth/compare/ETH%2FUSD/BTC%2FUSD"
+
+# Update prices on-chain (requires funded wallet)
+curl -X POST "http://localhost:3000/pyth/update-onchain" \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"providerUrl\": \"${RPC_URL}\",
+    \"pythContractAddress\": \"${PYTH_CONTRACT}\",
+    \"walletPrivateKey\": \"${PRIVATE_KEY}\",
+    \"priceIds\": [\"0xff61491a931112ddf1bd8147cd1b641375f79f5825126d665480874634fd0ace\"]
+  }"
+
+# Get on-chain price
+curl -X POST "http://localhost:3000/pyth/onchain-price" \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"providerUrl\": \"${RPC_URL}\",
+    \"pythContractAddress\": \"${PYTH_CONTRACT}\",
+    \"priceId\": \"0xff61491a931112ddf1bd8147cd1b641375f79f5825126d665480874634fd0ace\"
+  }"
 ```
+
+## Environment Variables
+
+For on-chain operations, set up the following environment variables:
+
+```bash
+export RPC_URL="https://your-rpc-endpoint.com"
+export PYTH_CONTRACT="0x4305fb66699c3b2702d4d05cf36551390a4c69c6"
+export PRIVATE_KEY="your-private-key-here"
+```
+
+**Security Note:** Never commit private keys to version control. Use environment variables or secure key management systems in production.
 
 ---
 
