@@ -25,6 +25,9 @@ export interface ConversationContext {
         preferredDisplayDuration?: number;
         voiceFeedbackEnabled?: boolean;
     };
+    // Market data context
+    lastQueriedToken?: string;
+    lastQueriedAddress?: string;
 }
 
 export class ConversationManager {
@@ -216,6 +219,26 @@ export class ConversationManager {
     updateUserPreferences(sessionId: string, preferences: Partial<ConversationContext['userPreferences']>): void {
         const context = this.getOrCreateContext(sessionId);
         context.userPreferences = { ...context.userPreferences, ...preferences };
+    }
+
+    /**
+     * Add simple history entry (convenience method)
+     */
+    addSimpleHistory(sessionId: string, type: 'user' | 'assistant', message: string): void {
+        if (type === 'user') {
+            this.addInteraction(sessionId, message, '');
+        } else {
+            // Update the last entry with the assistant response
+            const context = this.getOrCreateContext(sessionId);
+            if (context.conversationHistory.length > 0) {
+                const lastEntry = context.conversationHistory[context.conversationHistory.length - 1];
+                if (lastEntry) {
+                    lastEntry.botResponse = message;
+                }
+            } else {
+                this.addInteraction(sessionId, '', message);
+            }
+        }
     }
 }
 

@@ -1,6 +1,7 @@
 import { gptService, type ActionableResponse } from '../gpt/service.js';
 import { PhysicalWalletService } from './physicalWallet.js';
 import { WalletQueryService } from './walletQueryService.js';
+import { MarketCommandRouter } from './marketCommandRouter.js';
 import { uiSyncService } from './uiSyncService.js';
 import { conversationManager, type ConversationContext } from './conversationManager.js';
 import { speakText } from '../output/speak.js';
@@ -19,10 +20,12 @@ export interface VoiceCommandResponse {
 export class VoiceCommandRouter {
     private physicalWalletService: PhysicalWalletService;
     private walletQueryService: WalletQueryService;
+    private marketCommandRouter: MarketCommandRouter;
 
     constructor(physicalWalletService: PhysicalWalletService, walletQueryService: WalletQueryService) {
         this.physicalWalletService = physicalWalletService;
         this.walletQueryService = walletQueryService;
+        this.marketCommandRouter = new MarketCommandRouter();
     }
 
     /**
@@ -49,6 +52,11 @@ export class VoiceCommandRouter {
             // Check for session control commands
             if (this.isSessionControlCommand(text)) {
                 return await this.handleSessionControl(text, sessionId);
+            }
+
+            // Check for market-related commands first
+            if (MarketCommandRouter.isMarketCommand(text)) {
+                return await this.handleMarketCommand(text, sessionId);
             }
 
             // Enhanced intent analysis with conversation context
@@ -609,6 +617,41 @@ export class VoiceCommandRouter {
             continueListening: true,
             sessionId
         };
+    }
+
+    /**
+     * Handle market-related commands
+     */
+    private async handleMarketCommand(text: string, sessionId: string): Promise<VoiceCommandResponse> {
+        try {
+            const context = conversationManager.getOrCreateContext(sessionId);
+            const marketResult = await this.marketCommandRouter.processMarketCommand(text, context);
+            
+            const displayMessage = marketResult.response.length > 100 
+                ? marketResult.response.substring(0, 97) + "..."
+                : marketResult.response;
+
+            return {
+                success: marketResult.success,
+                message: marketResult.response,
+                spokenMessage: marketResult.response,
+                displayMessage,
+                data: marketResult.data,
+                requiresConfirmation: marketResult.requiresConfirmation || false,
+                continueListening: true,
+                sessionId
+            };
+        } catch (error) {
+            console.error('Error handling market command:', error);
+            const errorMessage = "I had trouble accessing market data. Please try again.";
+            return {
+                success: false,
+                message: errorMessage,
+                spokenMessage: errorMessage,
+                continueListening: true,
+                sessionId
+            };
+        }
     }
 
     /**
