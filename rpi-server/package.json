@@ -36,6 +36,7 @@
     "@substreams/core": "^0.1.19",
     "@substreams/manifest": "^0.0.9",
     "axios": "^1.12.2",
+    "cors": "^2.8.5",
     "dotenv": "^16.4.5",
     "ethers": "^6.15.0",
     "express": "^5.1.0",
