@@ -2,6 +2,7 @@ import { WalletStorageService, type StoredWallet } from '../functions/walletStor
 import { EthereumWalletGenerator, type TransferResult } from '../functions/walletCreation.js';
 import { speakText } from '../output/speak.js';
 import { PhysicalWalletService } from './physicalWallet.js';
+import { showDisplayMessage } from '../utils/display.js';
 
 export interface TransferRequest {
     toAddress: string;
@@ -111,6 +112,17 @@ export class TransferService {
         console.log('⚠️ No wallets found for transfer');
         speakText(message);
         
+        // Show no wallet message on display
+        try {
+            await showDisplayMessage({
+                text: 'No Wallet Found\nCreate wallet first\nfor transfers',
+                emotion: 'confused',
+                duration: 8
+            });
+        } catch (displayError) {
+            console.warn('Display error:', displayError);
+        }
+        
         return {
             success: false,
             message: "No wallets available for transfer",
@@ -175,12 +187,34 @@ export class TransferService {
             
             console.log(`✅ Transfer success announced`);
             speakText(message);
+            
+            // Show success on display
+            try {
+                await showDisplayMessage({
+                    text: `Transfer Success!\n${result.details?.amount || 'Amount'} ETH sent\n${shortTxHash}`,
+                    emotion: 'excited',
+                    duration: 10
+                });
+            } catch (displayError) {
+                console.warn('Display error:', displayError);
+            }
         } else {
             const errorReason = this.parseTransferError(result.error || 'Unknown error');
             const message = `Transfer failed. ${errorReason} Please check your wallet balance and transaction details.`;
             
             console.log(`❌ Transfer failure announced: ${errorReason}`);
             speakText(message);
+            
+            // Show failure on display
+            try {
+                await showDisplayMessage({
+                    text: `Transfer Failed!\n${errorReason}\nCheck balance`,
+                    emotion: 'angry',
+                    duration: 8
+                });
+            } catch (displayError) {
+                console.warn('Display error:', displayError);
+            }
         }
     }
 
@@ -255,6 +289,17 @@ export class TransferService {
             
             const newWallet = await this.physicalWalletService.generatePhysicalWallet();
             
+            // Show wallet creation success on display
+            try {
+                await showDisplayMessage({
+                    text: `Wallet Created!\n${newWallet.walletInfo.address.substring(0, 10)}...${newWallet.walletInfo.address.substring(newWallet.walletInfo.address.length - 8)}\nReady for transfers`,
+                    emotion: 'happy',
+                    duration: 10
+                });
+            } catch (displayError) {
+                console.warn('Display error:', displayError);
+            }
+            
             return {
                 success: true,
                 address: newWallet.walletInfo.address,
@@ -263,6 +308,17 @@ export class TransferService {
         } catch (error) {
             const errorMessage = `Failed to create wallet: ${error instanceof Error ? error.message : 'Unknown error'}`;
             speakText(`Wallet creation failed. ${errorMessage}`);
+            
+            // Show creation failure on display
+            try {
+                await showDisplayMessage({
+                    text: 'Wallet Creation Failed\nPlease try again',
+                    emotion: 'sad',
+                    duration: 6
+                });
+            } catch (displayError) {
+                console.warn('Display error:', displayError);
+            }
             
             return {
                 success: false,

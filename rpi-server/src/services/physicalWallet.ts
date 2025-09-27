@@ -2,6 +2,7 @@ import { EthereumWalletGenerator, type WalletInfo, type TransferResult } from '.
 import { GraphProtocolService, type WalletData, type Transaction } from '../graph/market/walletmonitor.js';
 import { WalletStorageService } from '../functions/walletStorage.js';
 import { announceWalletCount, announceWalletCreated } from '../output/speak.js';
+import { showDisplayMessage } from '../utils/display.js';
 
 export interface PhysicalWallet {
   walletInfo: WalletInfo;
@@ -31,7 +32,7 @@ export class PhysicalWalletService {
         announceWalletCount(existingWalletCount);
 
         // Generate new wallet
-        const walletInfo = EthereumWalletGenerator.generateWallet();
+        const walletInfo = await EthereumWalletGenerator.generateWallet();
         
         const physicalWallet: PhysicalWallet = {
             walletInfo,
@@ -46,7 +47,7 @@ export class PhysicalWalletService {
 
         // Save to persistent storage (this will append to existing wallets)
         const walletLabel = existingWalletCount === 0 ? 'Main Wallet' : `Wallet ${existingWalletCount + 1}`;
-        WalletStorageService.saveWallet(walletInfo, {
+        await WalletStorageService.saveWallet(walletInfo, {
             label: walletLabel,
             notes: 'Generated via Physical Wallet Service'
         });
@@ -63,6 +64,17 @@ export class PhysicalWalletService {
         // Announce successful creation with new total count
         const newTotalCount = existingWalletCount + 1;
         announceWalletCreated(walletInfo.address, newTotalCount);
+
+        // Show wallet creation on display
+        try {
+            await showDisplayMessage({
+                text: `Physical Wallet #${newTotalCount}\nCreated Successfully!\n${walletInfo.address.substring(0, 10)}...`,
+                emotion: 'excited',
+                duration: 8
+            });
+        } catch (displayError) {
+            console.warn('Display error:', displayError);
+        }
 
         return physicalWallet;
     }
@@ -117,7 +129,7 @@ export class PhysicalWalletService {
 
     // Save to persistent storage
     const walletLabel = existingWalletCount === 0 ? 'Imported Main Wallet' : `Imported Wallet ${existingWalletCount + 1}`;
-    WalletStorageService.saveWallet(walletInfo, {
+    await WalletStorageService.saveWallet(walletInfo, {
         label: walletLabel,
         notes: 'Imported via Private Key'
     });
@@ -134,6 +146,17 @@ export class PhysicalWalletService {
     // Announce successful import
     const newTotalCount = existingWalletCount + 1;
     announceWalletCreated(walletInfo.address, newTotalCount);
+
+    // Show import success on display
+    try {
+        await showDisplayMessage({
+            text: `Wallet Imported!\nFrom Mnemonic\n${walletInfo.address.substring(0, 10)}...`,
+            emotion: 'happy',
+            duration: 8
+        });
+    } catch (displayError) {
+        console.warn('Display error:', displayError);
+    }
 
     return physicalWallet;
   }
@@ -161,7 +184,7 @@ export class PhysicalWalletService {
 
     // Save to persistent storage
     const walletLabel = existingWalletCount === 0 ? 'Imported Main Wallet' : `Imported Wallet ${existingWalletCount + 1}`;
-    WalletStorageService.saveWallet(walletInfo, {
+    await WalletStorageService.saveWallet(walletInfo, {
         label: walletLabel,
         notes: 'Imported via Mnemonic'
     });
@@ -179,7 +202,16 @@ export class PhysicalWalletService {
     const newTotalCount = existingWalletCount + 1;
     announceWalletCreated(walletInfo.address, newTotalCount);
 
-    return physicalWallet;
+    // Show import success on display
+    try {
+        await showDisplayMessage({
+            text: `Wallet Imported!\nFrom Mnemonic\n${walletInfo.address.substring(0, 10)}...`,
+            emotion: 'happy',
+            duration: 8
+        });
+    } catch (displayError) {
+        console.warn('Display error:', displayError);
+    }
 
     return physicalWallet;
   }
@@ -198,6 +230,17 @@ export class PhysicalWalletService {
     }
 
     wallet.isMonitoring = true;
+
+    // Show monitoring start on display
+    try {
+        await showDisplayMessage({
+            text: `Monitoring Started\n${address.substring(0, 10)}...\nWatching for transactions`,
+            emotion: 'normal',
+            duration: 6
+        });
+    } catch (displayError) {
+        console.warn('Display error:', displayError);
+    }
 
     const transactionCallback = async (transaction: Transaction) => {
       console.log(`New transaction detected for wallet ${address}:`, {
@@ -313,7 +356,7 @@ export class PhysicalWalletService {
         rpcUrl?: string
     ): Promise<TransferResult> {
         // Try to get wallet from storage first
-        const storedWallet = WalletStorageService.loadWallet();
+        const storedWallet = await WalletStorageService.loadWallet();
         if (!storedWallet) {
             throw new Error('No wallet found in storage. Please create a wallet first.');
         }
@@ -362,8 +405,8 @@ export class PhysicalWalletService {
     /**
      * Get stored wallet address
      */
-    getStoredWalletAddress(): string | null {
-        return WalletStorageService.getWalletAddress();
+    async getStoredWalletAddress(): Promise<string | null> {
+        return await WalletStorageService.getWalletAddress();
     }
 
     /**

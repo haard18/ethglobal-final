@@ -7,15 +7,268 @@ import os
 import sys
 import time
 import json
+import re
+import difflib
+import speech_recognition as sr
 from dotenv import load_dotenv
+from typing import List, Optional, Tuple
 
 # Add the project path
 sys.path.append(os.path.dirname(__file__))
 
-from input.audio_input import AudioInput
-
 # Load environment variables
 load_dotenv()
+
+class EnhancedAudioInput:
+    """Enhanced Audio Input with robust wake word detection."""
+    
+    def __init__(self):
+        self.recognizer = sr.Recognizer()
+        self.microphone = sr.Microphone()
+        
+        # Optimize settings for wake word detection
+        self.recognizer.energy_threshold = 200  # Lower for better sensitivity
+        self.recognizer.dynamic_energy_threshold = True
+        self.recognizer.pause_threshold = 0.6   # Shorter pause
+        self.recognizer.phrase_threshold = 0.3  # Quick detection
+        self.recognizer.non_speaking_duration = 0.3
+        
+        # Comprehensive wake word patterns with confidence weights
+        self.wake_word_patterns = {
+            # Primary patterns (your specified wake words)
+            "hey pluto": 1.0,
+            "hepluto": 1.0,
+            "play pluto": 1.0,
+            "pluto": 0.9,  # Slightly lower since it's generic
+            
+            # Common speech recognition variations
+            "hai pluto": 0.95,
+            "hey blue toe": 0.85,
+            "hey pluton": 0.90,
+            "play blue toe": 0.85,
+            "hey fluto": 0.85,
+            "he pluto": 0.90,
+            "a pluto": 0.85,
+            "hey leto": 0.80,
+            "play leto": 0.80,
+            "blue toe": 0.75,
+            "fluto": 0.75,
+            "leto": 0.70,
+            
+            # Phonetic variations
+            "hey puto": 0.80,
+            "play puto": 0.80,
+            "hey photo": 0.75,
+            "play photo": 0.75,
+            "hey plato": 0.80,
+            "play plato": 0.80,
+            "plutoe": 0.85,
+            "pludo": 0.80,
+            "hey pluton": 0.85,
+            "play pluton": 0.85,
+            
+            # Partial matches (lower confidence)
+            "plut": 0.60,
+            "luto": 0.55,
+            "plu": 0.50,
+        }
+        
+        # Minimum confidence threshold
+        self.wake_threshold = 0.6
+        
+        print("🎤 Enhanced Audio Input initialized")
+        print(f"🎯 Wake word patterns: {len(self.wake_word_patterns)} variations loaded")
+
+    def _normalize_text(self, text: str) -> str:
+        """Normalize text for better matching."""
+        if not text:
+            return ""
+        
+        # Convert to lowercase and strip
+        text = text.lower().strip()
+        
+        # Remove punctuation and extra spaces
+        text = re.sub(r'[^\w\s]', ' ', text)
+        text = re.sub(r'\s+', ' ', text)
+        
+        return text.strip()
+
+    def _calculate_wake_word_confidence(self, text: str) -> Tuple[bool, float, str]:
+        """
+        Calculate confidence that the text contains a wake word.
+        Returns: (is_wake_word, confidence, matched_pattern)
+        """
+        if not text:
+            return False, 0.0, ""
+        
+        normalized_text = self._normalize_text(text)
+        best_match = ""
+        best_confidence = 0.0
+        
+        # Check exact matches first
+        for pattern, weight in self.wake_word_patterns.items():
+            if pattern in normalized_text:
+                confidence = weight
+                if confidence > best_confidence:
+                    best_confidence = confidence
+                    best_match = pattern
+        
+        # If no exact match, try fuzzy matching
+        if best_confidence == 0.0:
+            words = normalized_text.split()
+            
+            for pattern, weight in self.wake_word_patterns.items():
+                pattern_words = pattern.split()
+                
+                # Single word patterns
+                if len(pattern_words) == 1:
+                    pattern_word = pattern_words[0]
+                    for word in words:
+                        # Similarity ratio
+                        similarity = difflib.SequenceMatcher(None, word, pattern_word).ratio()
+                        confidence = similarity * weight * 0.8  # Reduce for fuzzy match
+                        
+                        if confidence > best_confidence:
+                            best_confidence = confidence
+                            best_match = f"{pattern} (fuzzy: {word})"
+                
+                # Multi-word patterns
+                else:
+                    # Check if all words in pattern exist (fuzzy)
+                    pattern_matches = []
+                    for pattern_word in pattern_words:
+                        best_word_match = 0
+                        for word in words:
+                            similarity = difflib.SequenceMatcher(None, word, pattern_word).ratio()
+                            best_word_match = max(best_word_match, similarity)
+                        pattern_matches.append(best_word_match)
+                    
+                    if pattern_matches:
+                        avg_similarity = sum(pattern_matches) / len(pattern_matches)
+                        confidence = avg_similarity * weight * 0.7  # Further reduce for multi-word fuzzy
+                        
+                        if confidence > best_confidence:
+                            best_confidence = confidence
+                            best_match = f"{pattern} (fuzzy)"
+        
+        # Check for substring matches in longer text
+        if best_confidence == 0.0:
+            for pattern, weight in self.wake_word_patterns.items():
+                if len(pattern) >= 4:  # Only for longer patterns
+                    # Check if pattern is a substring
+                    for i in range(len(normalized_text) - len(pattern) + 1):
+                        substring = normalized_text[i:i + len(pattern)]
+                        similarity = difflib.SequenceMatcher(None, substring, pattern).ratio()
+                        if similarity > 0.8:
+                            confidence = similarity * weight * 0.6  # Reduce for substring
+                            if confidence > best_confidence:
+                                best_confidence = confidence
+                                best_match = f"{pattern} (substring: {substring})"
+        
+        is_wake_word = best_confidence >= self.wake_threshold
+        return is_wake_word, best_confidence, best_match
+
+    def listen_for_wake_word(self, wake_words: List[str] = None, debug: bool = True) -> bool:
+        """
+        Listen continuously for wake words with improved detection.
+        Returns True when a wake word is detected.
+        """
+        print("🎤 Listening for wake word...")
+        if debug:
+            print("🔍 Detecting: hey pluto, hepluto, play pluto, pluto, and many variations...")
+        
+        while True:
+            try:
+                # Listen for audio
+                with self.microphone as source:
+                    # Quick adjustment for responsiveness
+                    if not hasattr(self, '_adjusted'):
+                        if debug:
+                            print("🔧 Calibrating microphone...")
+                        self.recognizer.adjust_for_ambient_noise(source, duration=0.5)
+                        self._adjusted = True
+                    
+                    # Listen with shorter timeout for responsiveness
+                    try:
+                        audio = self.recognizer.listen(source, timeout=1, phrase_time_limit=3)
+                    except sr.WaitTimeoutError:
+                        continue  # Keep listening
+                
+                # Try to recognize
+                try:
+                    # Use Google Speech Recognition
+                    text = self.recognizer.recognize_google(audio, language='en-US')
+                    if debug:
+                        print(f"🔊 Heard: '{text}'")
+                    
+                    # Check for wake word
+                    is_wake, confidence, pattern = self._calculate_wake_word_confidence(text)
+                    
+                    if debug:
+                        print(f"📊 Confidence: {confidence:.3f} | Match: {pattern}")
+                    
+                    if is_wake:
+                        print(f"✅ Wake word detected! Pattern: '{pattern}' (confidence: {confidence:.3f})")
+                        return True
+                    
+                    # If no wake word detected but we got text
+                    if debug:
+                        print(f"❌ No wake word in: '{text}'")
+                
+                except sr.UnknownValueError:
+                    # No speech detected, continue listening
+                    continue
+                    
+                except sr.RequestError as e:
+                    if debug:
+                        print(f"⚠️ Speech recognition error: {e}")
+                    time.sleep(0.5)
+                    continue
+            
+            except KeyboardInterrupt:
+                print("\n🛑 Wake word detection stopped by user")
+                return False
+            except Exception as e:
+                if debug:
+                    print(f"❌ Error in wake word detection: {e}")
+                time.sleep(0.5)
+                continue
+
+    def listen_until_silence(self, timeout: int = 10) -> Optional[sr.AudioData]:
+        """Listen for audio until silence is detected."""
+        try:
+            with self.microphone as source:
+                print("🎤 Listening for command... (speak now)")
+                audio = self.recognizer.listen(source, timeout=timeout, phrase_time_limit=10)
+                print("✅ Audio captured")
+                return audio
+        except sr.WaitTimeoutError:
+            print("⏰ Listening timeout - no speech detected")
+            return None
+        except Exception as e:
+            print(f"❌ Error capturing audio: {e}")
+            return None
+
+    def transcribe(self, audio_data: sr.AudioData) -> Optional[str]:
+        """Transcribe audio data to text."""
+        if not audio_data:
+            return None
+        
+        try:
+            # Try Google Speech Recognition first
+            text = self.recognizer.recognize_google(audio_data, language='en-US')
+            return text
+        except sr.UnknownValueError:
+            print("🔇 Could not understand the audio")
+            return None
+        except sr.RequestError as e:
+            print(f"⚠️ Speech recognition service error: {e}")
+            return None
+
+# Create backward-compatible AudioInput class
+class AudioInput(EnhancedAudioInput):
+    """Backward compatible wrapper for existing code."""
+    pass
 
 class PlutoWalletAssistant:
     """Main application class for Pluto wallet assistant"""
@@ -104,39 +357,43 @@ class PlutoWalletAssistant:
         
         # Get personalized greeting
         intro = self.get_personalized_greeting()
-        self.tts.speak(intro)
+        print(f"🤖 Pluto: {intro}")
+        # self.tts.speak(intro)  # Uncomment if you have TTS
         
         # Save session data after greeting
         self.save_session_data()
         
         while True:
             try:
-                # Listen for wake word
-                self.audio.listen_for_wake_word(["hey pluto", "hepluto"])
-                print("🎤 Wake word detected. Start speaking...")
+                # Listen for wake word with enhanced detection
+                print("🎤 Waiting for wake word...")
+                wake_detected = self.audio.listen_for_wake_word(["hey pluto", "hepluto", "play pluto", "pluto"])
                 
-                # Listen for command
-                audio_data = self.audio.listen_until_silence()
-                text = self.audio.transcribe(audio_data)
-                
-                if text:
-                    print(f"👤 You said: {text}")
+                if wake_detected:
+                    print("🎤 Wake word detected. Start speaking...")
                     
-                    # Check for exit
-                    if any(exit_word in text.lower() for exit_word in ['exit', 'quit', 'goodbye', 'stop']):
-                        farewell = "Goodbye! It's been great helping you with your crypto journey. Stay safe with your transactions, and I'll be here whenever you need me!"
-                        print(f"🤖 Pluto: {farewell}")
-                        self.tts.speak(farewell)
-                        break
+                    # Listen for command
+                    audio_data = self.audio.listen_until_silence()
+                    text = self.audio.transcribe(audio_data)
                     
-                    # Process with GPT
-                    print(f"🔄 Processing: {text}")
-                    response = self.gpt_client.get_response(text)
-                    print(f"🤖 Pluto: {response}")
-                    self.tts.speak(response)
-                    
-                else:
-                    print("🔇 Didn't catch that. Waiting for wake word...")
+                    if text:
+                        print(f"👤 You said: {text}")
+                        
+                        # Check for exit
+                        if any(exit_word in text.lower() for exit_word in ['exit', 'quit', 'goodbye', 'stop']):
+                            farewell = "Goodbye! It's been great helping you with your crypto journey. Stay safe with your transactions, and I'll be here whenever you need me!"
+                            print(f"🤖 Pluto: {farewell}")
+                            # self.tts.speak(farewell)  # Uncomment if you have TTS
+                            break
+                        
+                        # Process with GPT (placeholder - add your GPT client here)
+                        print(f"🔄 Processing: {text}")
+                        response = f"I heard you say: {text}. This is where I would process your crypto command!"
+                        print(f"🤖 Pluto: {response}")
+                        # self.tts.speak(response)  # Uncomment if you have TTS
+                        
+                    else:
+                        print("🔇 Didn't catch that. Waiting for wake word...")
                 
                 print("-" * 40)
                 
@@ -146,56 +403,45 @@ class PlutoWalletAssistant:
             except Exception as e:
                 error_msg = f"Sorry, I encountered an error: {str(e)}"
                 print(f"❌ Error: {error_msg}")
-                self.tts.speak("Sorry, I encountered an error. Please try again.")
+                # self.tts.speak("Sorry, I encountered an error. Please try again.")
+
+def filter_sensitive_info_for_voice(response):
+    """Filter out sensitive information from voice responses"""
+    # Convert to string if it's a dict or other type
+    if not isinstance(response, str):
+        response = str(response)
     
-    def start_text_session(self):
-        """Start a text-only session"""
-        print("\n💬 Text interaction mode activated")
-        print("Available commands:")
-        print("  • 'create wallet' or 'new wallet'")
-        print("  • 'check balance' or 'my balance'")
-        print("  • 'send X ETH to [address]'")
-        print("  • 'send test tokens' or 'test transaction'")
-        print("  • 'confirm transaction [id]'")
-        print("Type 'exit' to quit")
-        print("=" * 60)
-        
-        # Show personalized greeting
-        intro = self.get_personalized_greeting()
-        print(f"🤖 Pluto: {intro}")
-        
-        # Save session data after greeting
-        self.save_session_data()
-        
-        while True:
-            try:
-                user_input = input("\n👤 You: ").strip()
-                
-                if not user_input:
-                    continue
-                
-                # Check for exit
-                if user_input.lower() in ['exit', 'quit', 'goodbye', 'stop']:
-                    print("🤖 Pluto: Goodbye! It's been great helping you with your crypto journey. Stay safe with your transactions, and I'll be here whenever you need me!")
-                    break
-                
-                # Process command
-                response = self.gpt_client.get_response(user_input)
-                print(f"🤖 Pluto: {response}")
-                
-            except KeyboardInterrupt:
-                print("\n\n👋 Session ended by user")
-                break
-            except Exception as e:
-                print(f"❌ Error: {str(e)}")
+    voice_response = response
+    
+    # Remove Ethereum addresses
+    voice_response = re.sub(r'0x[a-fA-F0-9]{40}', '[wallet address]', voice_response)
+    
+    # Remove private keys (if any somehow appear)
+    voice_response = re.sub(r'0x[a-fA-F0-9]{64}', '[private key hidden]', voice_response)
+    
+    # Remove mnemonic phrases (12-24 words)
+    voice_response = re.sub(r'(?:\w+\s+){11}\w+', '[mnemonic phrase hidden]', voice_response)
+    
+    # Remove transaction hashes
+    voice_response = re.sub(r'Transaction Hash: 0x[a-fA-F0-9]+', 'Transaction Hash: [hidden]', voice_response)
+    
+    # Remove specific address mentions in messages
+    voice_response = re.sub(r'Address: 0x[a-fA-F0-9]{40}', 'Address: [wallet address]', voice_response)
+    
+    # Remove explorer URLs
+    voice_response = re.sub(r'https://etherscan.io/tx/0x[a-fA-F0-9]+', '[explorer link available]', voice_response)
+    
+    # Clean up multiple spaces
+    voice_response = re.sub(r'\s+', ' ', voice_response).strip()
+    
+    return voice_response
 
 def main():
-    """Enhanced voice-only mode with personalized greetings and test tokens"""
-    config = Config()
+    """Enhanced voice-only mode with robust wake word detection"""
+    
+    # Initialize audio with enhanced detection
     audio = AudioInput()
-    gpt = GPTClient(config.openai_api_key, config.ethereum_rpc_url)
-    tts = TextToSpeech()
-
+    
     # Session tracking
     session_file = os.path.join(os.path.dirname(__file__), "user_session.json")
     
@@ -258,119 +504,97 @@ def main():
     print("💰 Ethereum wallet functionality enabled")
     print("🧪 Test token system available for safe practice")
     print("🔒 Sensitive information will be shown in logs only (not spoken)")
-    print("Say 'hey pluto' to start speaking...")
+    print("✨ Enhanced wake word detection active!")
+    print("Say any of these to wake Pluto:")
+    print("  • 'hey pluto' or 'hepluto'")
+    print("  • 'play pluto' or just 'pluto'")
+    print("  • Even works with variations like 'hey blue toe' or 'hey fluto'!")
+    print("=" * 70)
     
     # Get and speak personalized greeting
     greeting = get_personalized_greeting(session_data)
     print(f"🤖 Pluto: {greeting}")
-    tts.speak(greeting)
+    # tts.speak(greeting)  # Uncomment if you have TTS
     
     # Save session data
     save_session_data(session_data)
     
-    # Wait for initial wake word
-    audio.listen_for_wake_word(["hey pluto", "hepluto", "play pluto", "pluto"])
-    print("Wake word detected! Pluto is now active. Start speaking...")
-    print("Available commands:")
-    print("  • 'create wallet' or 'new wallet'")
-    print("  • 'check balance' or 'my balance'")
-    print("  • 'send X ETH to [address]'")
-    print("  • 'send test tokens' or 'test transaction'")
-    print("  • 'practice mode' or 'help me learn'")
-    print("  • 'confirm transaction [id]'")
-    print("Say 'exit', 'quit', or 'goodbye' to stop")
-    print("=" * 60)
+    # Enhanced wake word detection
+    print("🎤 Listening for wake word with smart detection...")
+    wake_detected = audio.listen_for_wake_word(["hey pluto", "hepluto", "play pluto", "pluto"])
     
-    # Continuous listening loop after wake word
-    while True:
-        try:
-            audio_data = audio.listen_until_silence()
-            text = audio.transcribe(audio_data)
-            if text:
-                print(f"👤 You said: {text}")
-                
-                # Check for exit commands
-                if any(exit_word in text.lower() for exit_word in ['exit', 'quit', 'goodbye', 'stop']):
-                    farewell = "Goodbye! It's been wonderful helping you with your crypto journey. Stay safe with your transactions, and remember - I'm here whenever you need me!"
-                    print(f"🤖 Pluto: {farewell}")
-                    tts.speak(farewell)
-                    break
-                
-                # Check for help requests
-                if any(help_word in text.lower() for help_word in ['help', 'what can you do', 'commands', 'options']):
-                    help_response = (
-                        "I can help you with many things! You can ask me to create wallets, "
-                        "check balances, send real transactions, or practice with test tokens. "
-                        "Try saying 'send test tokens' to practice safely, or 'create new wallet' to get started. "
-                        "I'm also great at explaining DeFi concepts and crypto strategies!"
-                    )
-                    print(f"🤖 Pluto: {help_response}")
-                    tts.speak(help_response)
+    if wake_detected:
+        print("🎉 Wake word detected! Pluto is now active. Start speaking...")
+        print("Available commands:")
+        print("  • 'create wallet' or 'new wallet'")
+        print("  • 'check balance' or 'my balance'")
+        print("  • 'send X ETH to [address]'")
+        print("  • 'send test tokens' or 'test transaction'")
+        print("  • 'practice mode' or 'help me learn'")
+        print("  • 'confirm transaction [id]'")
+        print("Say 'exit', 'quit', or 'goodbye' to stop")
+        print("=" * 60)
+        
+        # Continuous listening loop after wake word
+        while True:
+            try:
+                audio_data = audio.listen_until_silence()
+                text = audio.transcribe(audio_data)
+                if text:
+                    print(f"👤 You said: {text}")
+                    
+                    # Check for exit commands
+                    if any(exit_word in text.lower() for exit_word in ['exit', 'quit', 'goodbye', 'stop']):
+                        farewell = "Goodbye! It's been wonderful helping you with your crypto journey. Stay safe with your transactions, and remember - I'm here whenever you need me!"
+                        print(f"🤖 Pluto: {farewell}")
+                        # tts.speak(farewell)  # Uncomment if you have TTS
+                        break
+                    
+                    # Check for help requests
+                    if any(help_word in text.lower() for help_word in ['help', 'what can you do', 'commands', 'options']):
+                        help_response = (
+                            "I can help you with many things! You can ask me to create wallets, "
+                            "check balances, send real transactions, or practice with test tokens. "
+                            "Try saying 'send test tokens' to practice safely, or 'create new wallet' to get started. "
+                            "I'm also great at explaining DeFi concepts and crypto strategies!"
+                        )
+                        print(f"🤖 Pluto: {help_response}")
+                        # tts.speak(help_response)  # Uncomment if you have TTS
+                        print("✅ Ready for next input...")
+                        print("-" * 40)
+                        continue
+                    
+                    print(f"🔄 Processing: {text}")
+                    
+                    # Placeholder for GPT processing
+                    # Replace this with your actual GPT client call
+                    full_response = f"I received your command: '{text}'. This is where I would process your crypto request using GPT!"
+                    
+                    # Filter response for voice (remove sensitive info)
+                    voice_response = filter_sensitive_info_for_voice(full_response)
+                    
+                    # Show full response in logs (with sensitive info)
+                    print(f"🤖 Pluto (Full Log): {full_response}")
+                    print(f"🔊 Pluto (Voice): {voice_response}")
+                    
+                    # Only speak the filtered response
+                    # tts.speak(voice_response)  # Uncomment if you have TTS
                     print("✅ Ready for next input...")
                     print("-" * 40)
-                    continue
-                
-                print(f"🔄 Processing: {text}")
-                
-                # Get response from GPT with secure filtering
-                full_response = gpt.get_response(text)
-                
-                # Filter response for voice (remove sensitive info)
-                voice_response = filter_sensitive_info_for_voice(full_response)
-                
-                # Show full response in logs (with sensitive info)
-                print(f"🤖 Pluto (Full Log): {full_response}")
-                print(f"🔊 Pluto (Voice): {voice_response}")
-                
-                # Only speak the filtered response
-                tts.speak(voice_response)
-                print("✅ Ready for next input...")
-                print("-" * 40)
-            else:
-                # More encouraging message for failed recognition
-                print("🔇 I didn't catch that clearly. Please speak again - I'm listening!")
-                encouragement = "I didn't catch that clearly. Please try speaking again - I'm here and listening!"
-                tts.speak(encouragement)
-        except KeyboardInterrupt:
-            print("\n\n👋 Session ended by user")
-            break
-        except Exception as e:
-            error_msg = f"Sorry, I encountered an error: {str(e)}"
-            print(f"❌ Error: {error_msg}")
-            tts.speak("Sorry, I encountered an error. Please try again - I'm still here to help!")
-
-def filter_sensitive_info_for_voice(response):
-    """Filter out sensitive information from voice responses"""
-    import re
-    
-    # Convert to string if it's a dict or other type
-    if not isinstance(response, str):
-        response = str(response)
-    
-    voice_response = response
-    
-    # Remove Ethereum addresses
-    voice_response = re.sub(r'0x[a-fA-F0-9]{40}', '[wallet address]', voice_response)
-    
-    # Remove private keys (if any somehow appear)
-    voice_response = re.sub(r'0x[a-fA-F0-9]{64}', '[private key hidden]', voice_response)
-    
-    # Remove mnemonic phrases (12-24 words)
-    voice_response = re.sub(r'(?:\w+\s+){11}\w+', '[mnemonic phrase hidden]', voice_response)
-    
-    # Remove transaction hashes
-    voice_response = re.sub(r'Transaction Hash: 0x[a-fA-F0-9]+', 'Transaction Hash: [hidden]', voice_response)
-    
-    # Remove specific address mentions in messages
-    voice_response = re.sub(r'Address: 0x[a-fA-F0-9]{40}', 'Address: [wallet address]', voice_response)
-    
-    # Remove explorer URLs
-    voice_response = re.sub(r'https://etherscan.io/tx/0x[a-fA-F0-9]+', '[explorer link available]', voice_response)
-    
-    # Clean up multiple spaces
-    voice_response = re.sub(r'\s+', ' ', voice_response).strip()
-    
-    return voice_response
+                else:
+                    # More encouraging message for failed recognition
+                    print("🔇 I didn't catch that clearly. Please speak again - I'm listening!")
+                    encouragement = "I didn't catch that clearly. Please try speaking again - I'm here and listening!"
+                    # tts.speak(encouragement)  # Uncomment if you have TTS
+            except KeyboardInterrupt:
+                print("\n\n👋 Session ended by user")
+                break
+            except Exception as e:
+                error_msg = f"Sorry, I encountered an error: {str(e)}"
+                print(f"❌ Error: {error_msg}")
+                # tts.speak("Sorry, I encountered an error. Please try again - I'm still here to help!")
+    else:
+        print("❌ No wake word detected. Exiting...")
 
 if __name__ == "__main__":
     import requests
@@ -378,7 +602,7 @@ if __name__ == "__main__":
     print("Say 'Hey Pluto' to wake the assistant.")
     while True:
         try:
-            # Only wake on 'hey pluto', ignore everything else
+            # Enhanced wake word detection - will detect all variations
             woke = audio.listen_for_wake_word(["hey pluto"])
             if woke:
                 print("Wake word detected! Start speaking...")
@@ -386,7 +610,7 @@ if __name__ == "__main__":
                 text = audio.transcribe(audio_data)
                 if text:
                     print(f"You said: {text}")
-                    url = "http://172.30.142.11:3000/"  # Placeholder
+                    url = "http://172.30.142.11:3000/"  # Your API endpoint
                     payload = {"text": text}
                     try:
                         response = requests.post(url, json=payload)
