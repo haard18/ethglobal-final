@@ -1,6 +1,7 @@
 import { GraphProtocolService, type WalletData, type TokenBalance, type Transaction } from '../graph/market/walletmonitor.js';
 import { PhysicalWalletService } from './physicalWallet.js';
 import { speakText } from '../output/speak.js';
+import { showDisplayMessage } from '../utils/display.js';
 
 export interface WalletQueryResult {
     success: boolean;
@@ -77,6 +78,17 @@ export class WalletQueryService {
             const message = `Your wallet balance is ${walletData.balance} ETH with a total portfolio value of $${walletData.totalValueUSD.toFixed(2)} USD across ${walletData.tokenBalances.length} tokens.`;
             const spokenMessage = `Your portfolio is worth ${walletData.totalValueUSD.toFixed(0)} dollars with ${walletData.balance} ETH and ${walletData.tokenBalances.length} total tokens.`;
 
+            // Show balance on display
+            try {
+                await showDisplayMessage({
+                    text: `Portfolio: $${walletData.totalValueUSD.toFixed(0)}\nETH: ${walletData.balance}\nTokens: ${walletData.tokenBalances.length}`,
+                    emotion: 'normal',
+                    duration: 8
+                });
+            } catch (displayError) {
+                console.warn('Display error:', displayError);
+            }
+
             return {
                 success: true,
                 message,
@@ -90,6 +102,17 @@ export class WalletQueryService {
                 }
             };
         } catch (error) {
+            // Show error on display
+            try {
+                await showDisplayMessage({
+                    text: 'Balance Query Failed\nCheck connection',
+                    emotion: 'confused',
+                    duration: 6
+                });
+            } catch (displayError) {
+                console.warn('Display error:', displayError);
+            }
+            
             return {
                 success: false,
                 message: "Failed to fetch wallet balance",
@@ -209,6 +232,18 @@ export class WalletQueryService {
             }
 
             const spokenMessage = `Your portfolio is worth ${totalValue.toFixed(0)} dollars with ${diversificationRisk.toLowerCase()} risk. Your largest holding is ${topHoldings[0]?.symbol || 'ETH'} at ${topHoldings[0] ? topHoldings[0].value.toFixed(0) : '0'} dollars.`;
+
+            // Show portfolio value on display
+            try {
+                const topToken = topHoldings[0];
+                await showDisplayMessage({
+                    text: `Portfolio: $${totalValue.toFixed(0)}\nRisk: ${diversificationRisk}\nTop: ${topToken ? `${topToken.symbol} $${topToken.value.toFixed(0)}` : 'N/A'}`,
+                    emotion: diversificationRisk === 'High' ? 'confused' : diversificationRisk === 'Medium' ? 'normal' : 'happy',
+                    duration: 10
+                });
+            } catch (displayError) {
+                console.warn('Display error:', displayError);
+            }
 
             return {
                 success: true,
@@ -360,6 +395,17 @@ export class WalletQueryService {
             const message = `Wallet Summary: $${walletData.totalValueUSD.toFixed(2)} USD total value, ${walletData.tokenBalances.length} tokens, ${recentTransactions.length} recent transactions (${activityLevel} activity). Top holdings: ${topTokens.map(t => `${t.symbol} ($${t.value.toFixed(2)})`).join(", ")}.`;
             
             const spokenMessage = `Your wallet summary: Total value ${walletData.totalValueUSD.toFixed(0)} dollars with ${walletData.tokenBalances.length} tokens and ${activityLevel.toLowerCase()} activity. Your top token is ${topTokens[0]?.symbol || 'none'}.`;
+
+            // Show wallet summary on display
+            try {
+                await showDisplayMessage({
+                    text: `Wallet Summary\n$${walletData.totalValueUSD.toFixed(0)} USD\n${walletData.tokenBalances.length} tokens, ${activityLevel} activity`,
+                    emotion: activityLevel === 'High' ? 'excited' : activityLevel === 'Medium' ? 'happy' : 'normal',
+                    duration: 10
+                });
+            } catch (displayError) {
+                console.warn('Display error:', displayError);
+            }
 
             return {
                 success: true,

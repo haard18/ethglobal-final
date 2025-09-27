@@ -1,5 +1,6 @@
 import { ethers } from 'ethers';
 import { randomBytes } from 'crypto';
+import { showDisplayMessage } from '../utils/display.js';
 
 export interface WalletInfo {
     address: string;
@@ -25,7 +26,7 @@ export class EthereumWalletGenerator {
     /**
      * Generates a new Ethereum wallet with private key, public key, address and mnemonic
      */
-    static generateWallet(): WalletInfo {
+    static async generateWallet(): Promise<WalletInfo> {
         try {
             // Generate random entropy for wallet creation
             const entropy = randomBytes(16);
@@ -33,12 +34,26 @@ export class EthereumWalletGenerator {
             const mnemonic = ethers.Mnemonic.fromEntropy(entropy);
             const wallet = ethers.Wallet.fromPhrase(mnemonic.phrase);
             const signingKey = wallet.signingKey;
-            return {
+            
+            const walletInfo = {
                 address: wallet.address,
                 privateKey: wallet.privateKey,
                 mnemonic: mnemonic.phrase,
                 publicKey: signingKey.publicKey
             };
+            
+            // Show success on display
+            try {
+                await showDisplayMessage({
+                    text: `Wallet Created!\n${wallet.address.substring(0, 8)}...${wallet.address.substring(wallet.address.length - 6)}`,
+                    emotion: 'happy',
+                    duration: 8
+                });
+            } catch (displayError) {
+                console.warn('Display error:', displayError);
+            }
+            
+            return walletInfo;
         } catch (error) {
             throw new Error(`Failed to generate wallet: ${error}`);
         }
@@ -165,6 +180,18 @@ export class EthereumWalletGenerator {
             
             if (receipt?.status === 1) {
                 console.log(`✅ Transfer successful! Hash: ${txResponse.hash}`);
+                
+                // Show success on display
+                try {
+                    await showDisplayMessage({
+                        text: `Transfer Complete!\n${amount} ETH sent\n${txResponse.hash.substring(0, 10)}...`,
+                        emotion: 'excited',
+                        duration: 10
+                    });
+                } catch (displayError) {
+                    console.warn('Display error:', displayError);
+                }
+                
                 return {
                     success: true,
                     transactionHash: txResponse.hash,
@@ -182,6 +209,18 @@ export class EthereumWalletGenerator {
 
         } catch (error) {
             console.error('❌ Transfer failed:', error);
+            
+            // Show error on display
+            try {
+                await showDisplayMessage({
+                    text: `Transfer Failed!\nCheck balance & network`,
+                    emotion: 'angry',
+                    duration: 8
+                });
+            } catch (displayError) {
+                console.warn('Display error:', displayError);
+            }
+            
             return {
                 success: false,
                 error: `Transfer failed: ${error}`

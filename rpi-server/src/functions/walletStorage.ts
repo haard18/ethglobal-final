@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { type WalletInfo } from './walletCreation.ts';
+import { showDisplayMessage } from '../utils/display.js';
 
 // Define a consistent path for wallet storage
 const WALLET_STORAGE_DIR = path.join(process.cwd(), 'wallet-storage');
@@ -91,7 +92,7 @@ export class WalletStorageService {
     /**
      * Add new wallet to the collection
      */
-    static saveWallet(walletInfo: WalletInfo, metadata?: any): void {
+    static async saveWallet(walletInfo: WalletInfo, metadata?: any): Promise<void> {
         const collection = this.loadWalletCollection();
         
         const newWallet: StoredWallet = {
@@ -120,11 +121,23 @@ export class WalletStorageService {
     /**
      * Load the most recently used wallet from persistent storage
      */
-    static loadWallet(): StoredWallet | null {
+    static async loadWallet(): Promise<StoredWallet | null> {
         const collection = this.loadWalletCollection();
         
         if (collection.wallets.length === 0) {
             console.log('📁 No wallets found in collection');
+            
+            // Show no wallet message on display
+            try {
+                await showDisplayMessage({
+                    text: 'No Wallets Found\nCreate a new wallet',
+                    emotion: 'confused',
+                    duration: 5
+                });
+            } catch (displayError) {
+                console.warn('Display error:', displayError);
+            }
+            
             return null;
         }
 
@@ -138,6 +151,18 @@ export class WalletStorageService {
         this.saveWalletCollection(collection);
         
         console.log(`✅ Most recent wallet loaded from storage: ${mostRecentWallet.walletInfo.address}`);
+        
+        // Show wallet address on display
+        try {
+            await showDisplayMessage({
+                text: `Active Wallet\n${mostRecentWallet.walletInfo.address.substring(0, 10)}...${mostRecentWallet.walletInfo.address.substring(mostRecentWallet.walletInfo.address.length - 8)}`,
+                emotion: 'normal',
+                duration: 5
+            });
+        } catch (displayError) {
+            console.warn('Display error:', displayError);
+        }
+        
         return mostRecentWallet;
     }
 
@@ -220,8 +245,8 @@ export class WalletStorageService {
     /**
      * Get wallet address of the most recent wallet if exists
      */
-    static getWalletAddress(): string | null {
-        const wallet = this.loadWallet();
+    static async getWalletAddress(): Promise<string | null> {
+        const wallet = await this.loadWallet();
         return wallet ? wallet.walletInfo.address : null;
     }
 }
