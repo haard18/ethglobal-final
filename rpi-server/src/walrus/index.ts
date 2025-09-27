@@ -114,7 +114,7 @@ export async function uploadWalletToWalrus(walletIndex: number = 1): Promise<{
         'wallet-type': 'pluto',
         'wallet-index': walletIndex.toString()
       }
-    });
+    });  
 
     // Upload to Walrus
     console.log(`Uploading wallet ${walletKey} to Walrus...`);

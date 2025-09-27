@@ -7,8 +7,9 @@ import {
   createAuthInterceptor as createSubstreamsAuthInterceptor 
 } from "@substreams/core";
 import dotenv from "dotenv";
-dotenv.config();
-const TOKEN = process.env.GRAPH_API_TOKEN; // Substreams token. By default it takes the SUBSTREAMS_API_TOKEN environment variable of your system
+dotenv.config({ path: __dirname + "/../.env" });
+const TOKEN = "eyJhbGciOiJLTVNFUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjE3OTQ4OTU2MTksImp0aSI6IjgwMjllZDg4LTY5ZWMtNDA2NC05OWFhLWFkNGY2ZDU0NWUwMiIsImlhdCI6MTc1ODg5NTYxOSwiaXNzIjoiZGZ1c2UuaW8iLCJzdWIiOiIwZGl6YTM4NWM5MmVhOTkzZGRhODIiLCJ2IjoyLCJha2kiOiIzMDVhZWZkNDE3YmJjNzgyNzAyY2FkN2IxMGViMzlkMTBlNTdiNWQ4MTU5M2ZkYTg2YWY4Yzk5YjljN2EwMDY0IiwidWlkIjoiMGRpemEzODVjOTJlYTk5M2RkYTgyIiwic3Vic3RyZWFtc19wbGFuX3RpZXIiOiJGUkVFIiwiY2ZnIjp7IlNVQlNUUkVBTVNfTUFYX1JFUVVFU1RTIjoiMiIsIlNVQlNUUkVBTVNfUEFSQUxMRUxfSk9CUyI6IjUiLCJTVUJTVFJFQU1TX1BBUkFMTEVMX1dPUktFUlMiOiI1In19.-BBfME1q4KdqXs4tmFstcwfJYDPxvT1Zl4RMfVlh29jDbzQHNIJA3OhT7NQsMDwNVEn0POHCHWHdpfCrOrgGHA"
+
 const ENDPOINT = "https://mainnet.eth.streamingfast.io"; // Substreams endpoint. In this case, Ethereum mainnet
 const SPKG = "https://spkg.io/streamingfast/ethereum-explorer-v0.1.2.spkg"; // Substreams package. In this case, taken from the substreams.dev registry
 const MODULE = "map_block_meta";
