@@ -215,8 +215,8 @@ export class MarketCommandRouter {
         const overview = await marketDataService.getMarketOverview();
         
         context.currentTopic = 'market-overview';
-        conversationManager.addSimpleHistory(context.sessionId, 'user', 'market overview request');
-        conversationManager.addSimpleHistory(context.sessionId, 'assistant', overview);
+        conversationManager.addInteraction(context.sessionId, 'user', 'market overview request');
+        conversationManager.addInteraction(context.sessionId, 'assistant', overview);
 
         return {
             success: true,
@@ -239,8 +239,8 @@ export class MarketCommandRouter {
         
         context.currentTopic = 'token-price';
         context.lastQueriedToken = tokenAddress;
-        conversationManager.addSimpleHistory(context.sessionId, 'user', `price query for ${tokenAddress}`);
-        conversationManager.addSimpleHistory(context.sessionId, 'assistant', priceComparison);
+        conversationManager.addInteraction(context.sessionId, 'user', `price query for ${tokenAddress}`);
+        conversationManager.addInteraction(context.sessionId, 'assistant', priceComparison);
 
         return {
             success: true,
@@ -263,8 +263,8 @@ export class MarketCommandRouter {
         
         context.currentTopic = 'token-stats';
         context.lastQueriedToken = tokenAddress;
-        conversationManager.addSimpleHistory(context.sessionId, 'user', `stats query for ${tokenAddress}`);
-        conversationManager.addSimpleHistory(context.sessionId, 'assistant', tokenSummary);
+        conversationManager.addInteraction(context.sessionId, 'user', `stats query for ${tokenAddress}`);
+        conversationManager.addInteraction(context.sessionId, 'assistant', tokenSummary);
 
         return {
             success: true,
@@ -281,8 +281,8 @@ export class MarketCommandRouter {
         const activity = await marketDataService.getRecentMarketActivity(Math.min(limit, 50));
         
         context.currentTopic = 'recent-activity';
-        conversationManager.addSimpleHistory(context.sessionId, 'user', 'recent activity request');
-        conversationManager.addSimpleHistory(context.sessionId, 'assistant', activity);
+        conversationManager.addInteraction(context.sessionId, 'user', 'recent activity request');
+        conversationManager.addInteraction(context.sessionId, 'assistant', activity);
 
         return {
             success: true,
@@ -305,8 +305,8 @@ export class MarketCommandRouter {
         
         context.currentTopic = 'user-activity';
         context.lastQueriedAddress = userAddress;
-        conversationManager.addSimpleHistory(context.sessionId, 'user', `user activity for ${userAddress}`);
-        conversationManager.addSimpleHistory(context.sessionId, 'assistant', userSummary);
+        conversationManager.addInteraction(context.sessionId, 'user', `user activity for ${userAddress}`);
+        conversationManager.addInteraction(context.sessionId, 'assistant', userSummary);
 
         return {
             success: true,
@@ -342,8 +342,8 @@ export class MarketCommandRouter {
         }
 
         context.currentTopic = isGainers ? 'top-gainers' : 'top-losers';
-        conversationManager.addSimpleHistory(context.sessionId, 'user', command);
-        conversationManager.addSimpleHistory(context.sessionId, 'assistant', response);
+        conversationManager.addInteraction(context.sessionId, 'user', command);
+        conversationManager.addInteraction(context.sessionId, 'assistant', response);
 
         return {
             success: true,
@@ -368,8 +368,8 @@ export class MarketCommandRouter {
 
         context.currentTopic = 'price-comparison';
         context.lastQueriedToken = tokenAddress;
-        conversationManager.addSimpleHistory(context.sessionId, 'user', `price comparison for ${tokenAddress}`);
-        conversationManager.addSimpleHistory(context.sessionId, 'assistant', comparison);
+        conversationManager.addInteraction(context.sessionId, 'user', `price comparison for ${tokenAddress}`);
+        conversationManager.addInteraction(context.sessionId, 'assistant', comparison);
 
         return {
             success: true,
@@ -394,8 +394,8 @@ export class MarketCommandRouter {
         }
 
         context.currentTopic = 'trending';
-        conversationManager.addSimpleHistory(context.sessionId, 'user', 'trending tokens request');
-        conversationManager.addSimpleHistory(context.sessionId, 'assistant', response);
+        conversationManager.addInteraction(context.sessionId, 'user', 'trending tokens request');
+        conversationManager.addInteraction(context.sessionId, 'assistant', response);
 
         return {
             success: true,
@@ -432,8 +432,8 @@ export class MarketCommandRouter {
 
         context.currentTopic = 'token-events';
         context.lastQueriedToken = tokenAddress;
-        conversationManager.addSimpleHistory(context.sessionId, 'user', `token events for ${tokenAddress}`);
-        conversationManager.addSimpleHistory(context.sessionId, 'assistant', response);
+        conversationManager.addInteraction(context.sessionId, 'user', `token events for ${tokenAddress}`);
+        conversationManager.addInteraction(context.sessionId, 'assistant', response);
 
         return {
             success: true,

@@ -27,8 +27,50 @@
         "label": "Wallet 2",
         "notes": "Generated via Physical Wallet Service"
       }
+    },
+    {
+      "walletInfo": {
+        "address": "0xD673f362a2370C0e71F31dBC662B71001e2F8Bf1",
+        "privateKey": "0x66e981838c782e3b291751d0c7d5a10d60ce1adc1fbaf9a441f8619d652cdd3d",
+        "mnemonic": "original uphold payment harbor bird vendor leisure fox service aim pudding apart",
+        "publicKey": "0x04f894b97042988816deff7277ac3dc1e21107e24d62bf6cb717490935dd2560d279077df8b9f1bda5c3d80f091ffeaafdf1fc7b227cafa1afdaed96ef4abde2c5"
+      },
+      "createdAt": "2025-09-27T18:59:04.727Z",
+      "lastUsed": "2025-09-27T18:59:04.727Z",
+      "metadata": {
+        "label": "Wallet 3",
+        "notes": "Generated via Physical Wallet Service"
+      }
+    },
+    {
+      "walletInfo": {
+        "address": "0x5d5c4a69dA6b863F67Ec31989cCA080420934f17",
+        "privateKey": "0xf092bfd9e1b96a450e1dc310f365dec60b1b22bef34cdcdfde128bd48e2596b0",
+        "mnemonic": "never dignity march artist unhappy special keen april friend auction time dumb",
+        "publicKey": "0x040bf019a09c1071369ac68591edba70042ca3e59c44b2f1d61f867073c6032fd3bc953102485cfcbccca96262758ae41f075a28830d2b5865780a661850123730"
+      },
+      "createdAt": "2025-09-27T18:59:18.309Z",
+      "lastUsed": "2025-09-27T18:59:18.309Z",
+      "metadata": {
+        "label": "Wallet 4",
+        "notes": "Generated via Physical Wallet Service"
+      }
+    },
+    {
+      "walletInfo": {
+        "address": "0x426445E545FBAfa70C8B49329b2895587731E1a6",
+        "privateKey": "0xfa4639885b4e1918bef56c065ea12308b9eade864423294824a8b3cf59af1a63",
+        "mnemonic": "rotate movie gaze simple hawk poem receive desk bleak energy pepper rifle",
+        "publicKey": "0x0496f9ca32a700cc45325799f9aac8578ac8c7fd7af850c749c797cf0b356148b2d18066ad063a351107643f24337bbff0adb5723ad8785496af1236ede334b41d"
+      },
+      "createdAt": "2025-09-27T18:59:22.067Z",
+      "lastUsed": "2025-09-27T18:59:22.067Z",
+      "metadata": {
+        "label": "Wallet 5",
+        "notes": "Generated via Physical Wallet Service"
+      }
     }
   ],
-  "totalCount": 2,
-  "lastUpdated": "2025-09-27T11:04:43.253Z"
+  "totalCount": 5,
+  "lastUpdated": "2025-09-27T18:59:22.067Z"
 }

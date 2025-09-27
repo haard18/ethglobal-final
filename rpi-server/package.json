@@ -10,6 +10,9 @@
     "test:coverage": "vitest run --coverage",
     "test:manual": "tsx test/manualValidation.ts",
     "test:simple": "tsx test/simpleValidation.ts",
+    "test:voice": "tsx test/voiceCommandsRunner.ts",
+    "test:voice:single": "tsx test/voiceCommandsRunner.ts --single",
+    "test:voice:category": "tsx test/voiceCommandsRunner.ts --category",
     "build": "tsc",
     "dev": "bun src/index.ts",
     "start": "npm run build && node dist/index.js"
