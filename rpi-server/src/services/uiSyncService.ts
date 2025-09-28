@@ -22,7 +22,7 @@ export class UISyncService {
     private displayUrl: string;
     private isDisplayAvailable: boolean = false;
 
-    constructor(displayHost: string = "192.168.1.117", displayPort: number = 5000) {
+    constructor(displayHost: string = "172.30.142.11", displayPort: number = 5000) {
         this.displayUrl = `http://${displayHost}:${displayPort}`;
         this.checkDisplayAvailability();
     }
