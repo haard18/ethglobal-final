@@ -608,6 +608,10 @@ class PlutoEnhancedSession:
         self.session_active = False
         self.last_interaction = time.time()
         self.conversation_timeout = config.session_timeout_seconds
+        # Command processing state
+        self.processing_command = False
+        self.current_operation = None
+        self.can_cancel = False
         
     def is_conversation_active(self):
         """Check if we're in an active conversation"""
@@ -617,6 +621,8 @@ class PlutoEnhancedSession:
         """Start a new conversation session"""
         self.session_active = True
         self.last_interaction = time.time()
+        self.processing_command = False
+        self.current_operation = None
         print(f"🎯 Conversation started (Session: {self.session_id})")
         show_display_message({"emotion": "excited", "text": "Ready to chat!", "duration": 3})
         
@@ -630,13 +636,72 @@ class PlutoEnhancedSession:
             except:
                 pass
         self.session_active = False
+        self.processing_command = False
+        self.current_operation = None
+        self.can_cancel = False
         
     def update_last_interaction(self):
         """Update the last interaction time"""
         self.last_interaction = time.time()
+    
+    def is_cancel_command(self, text: str) -> bool:
+        """Check if the user wants to cancel the current operation"""
+        if not text:
+            return False
+        
+        text_lower = text.lower().strip()
+        cancel_phrases = [
+            'cancel', 'stop', 'no', 'abort', 'quit this', 'stop this',
+            'never mind', 'forget it', 'cancel that', 'stop that',
+            'no thanks', 'not now', 'cancel operation', 'stop operation'
+        ]
+        
+        return any(phrase in text_lower for phrase in cancel_phrases)
+    
+    def start_command_processing(self, operation_name: str):
+        """Mark that we're starting to process a command"""
+        self.processing_command = True
+        self.current_operation = operation_name
+        self.can_cancel = True
+        print(f"🔄 Starting operation: {operation_name}")
+        show_display_message({"emotion": "confused", "text": f"Working on {operation_name}..."})
+    
+    def finish_command_processing(self):
+        """Mark that command processing is complete"""
+        self.processing_command = False
+        self.current_operation = None
+        self.can_cancel = False
+        print("✅ Operation completed")
+    
+    def cancel_current_operation(self):
+        """Cancel the current operation"""
+        if self.processing_command and self.can_cancel:
+            operation = self.current_operation or "operation"
+            print(f"❌ Cancelled: {operation}")
+            show_display_message({"emotion": "sad", "text": "Cancelled", "duration": 3})
+            self.finish_command_processing()
+            return True
+        return False
         
     def send_to_server(self, text: str):
         """Send text to server with session context"""
+        # Extract operation name for tracking
+        operation_name = "command"
+        text_lower = text.lower()
+        
+        if any(word in text_lower for word in ['create', 'new', 'generate']):
+            if 'wallet' in text_lower:
+                operation_name = "wallet creation"
+        elif any(word in text_lower for word in ['send', 'transfer', 'pay']):
+            operation_name = "transaction"
+        elif any(word in text_lower for word in ['balance', 'check']):
+            operation_name = "balance check"
+        elif any(word in text_lower for word in ['buy', 'sell', 'trade']):
+            operation_name = "trading"
+        
+        # Mark command processing start
+        self.start_command_processing(operation_name)
+        
         payload = {
             "text": text,
             "sessionId": self.session_id,
@@ -648,19 +713,23 @@ class PlutoEnhancedSession:
             if response.status_code == 200:
                 data = response.json()
                 self.session_active = data.get('continue_listening', False)
+                self.finish_command_processing()
                 return data
             else:
                 print(f"Server error: {response.status_code}")
+                self.finish_command_processing()
                 return {"success": False, "pluto_response": "Server error occurred"}
         except Exception as api_err:
             print(f"API call failed: {api_err}")
+            self.finish_command_processing()
             return {"success": False, "pluto_response": "Connection error occurred"}
     
     def run_conversation_loop(self):
         """Run the continuous conversation loop"""
-        print("🎤 Enhanced Pluto Assistant - Conversation Mode Active")
+        print("🎤 Enhanced Pluto Assistant - Single Command Mode Active")
         print("💫 Say 'Hey Pluto' once to start a conversation")
-        print("🔄 Then continue talking without wake words until timeout")
+        print("🔄 I will process ONE command at a time - no interruptions!")
+        print("❌ Say 'cancel', 'stop', or 'no' to cancel current operations")
         print("🛑 Say 'goodbye', 'exit', or wait 5 minutes to end session")
         print("=" * 70)
         
@@ -676,8 +745,40 @@ class PlutoEnhancedSession:
                         self.start_conversation()
                         continue
                 else:
-                    # In active conversation - no wake word needed
-                    print("🎤 Listening in conversation mode...")
+                    # Check if we're currently processing a command
+                    if self.processing_command:
+                        print(f"⏳ Still processing: {self.current_operation}...")
+                        print("🎤 Say 'cancel' or 'stop' to cancel, or wait for completion...")
+                        show_display_message({
+                            "emotion": "confused", 
+                            "text": f"Processing {self.current_operation}...",
+                            "duration": 3
+                        })
+                        
+                        # Listen for cancel commands only
+                        audio_data = self.audio.listen_until_silence()
+                        text = self.audio.transcribe(audio_data)
+                        
+                        if text:
+                            print(f"👤 You said: {text}")
+                            
+                            if self.is_cancel_command(text):
+                                if self.cancel_current_operation():
+                                    print("✅ Operation cancelled successfully!")
+                                else:
+                                    print("ℹ️ Nothing to cancel right now")
+                            else:
+                                print(f"⚠️ Command ignored - still processing '{self.current_operation}'")
+                                print("💡 Say 'cancel' to stop, or wait for current operation to finish")
+                                show_display_message({
+                                    "emotion": "confused", 
+                                    "text": "Still busy...",
+                                    "duration": 2
+                                })
+                        continue
+                    
+                    # Not processing - ready for new commands
+                    print("🎤 Listening for new command...")
                     show_display_message({"emotion": "wave", "text": "Listening..."})
                     
                     audio_data = self.audio.listen_until_silence()
@@ -687,10 +788,19 @@ class PlutoEnhancedSession:
                         print(f"👤 You said: {text}")
                         self.update_last_interaction()
                         
-                        # Clear display while processing
-                        show_display_message({"emotion": "confused", "text": "Processing..."})
+                        # Check for conversation end commands first
+                        if any(exit_word in text.lower() for exit_word in ['exit', 'quit', 'goodbye', 'stop session']):
+                            self.end_conversation()
+                            continue
                         
-                        # Send to server
+                        # Check if it's just a cancel command without active operation
+                        if self.is_cancel_command(text) and not self.processing_command:
+                            print("ℹ️ Nothing to cancel right now. Ready for your command!")
+                            show_display_message({"emotion": "normal", "text": "Ready!", "duration": 2})
+                            continue
+                        
+                        # Process the command (this will set processing_command = True)
+                        print(f"🔄 Processing your request: {text}")
                         response_data = self.send_to_server(text)
                         
                         if response_data.get("success"):
@@ -717,9 +827,8 @@ class PlutoEnhancedSession:
                             print(f"❌ Error: {error_msg}")
                             show_display_message({"emotion": "sad", "text": "Error"})
                             
-                        # Check for conversation end commands
-                        if any(exit_word in text.lower() for exit_word in ['exit', 'quit', 'goodbye', 'stop']):
-                            self.end_conversation()
+                        print("✅ Ready for next command!")
+                        print("-" * 40)
                             
                     else:
                         # No speech detected - show gentle prompt
@@ -732,6 +841,8 @@ class PlutoEnhancedSession:
                 break
             except Exception as e:
                 print(f"❌ Unexpected error: {e}")
+                # Reset processing state on error
+                self.finish_command_processing()
                 time.sleep(1)
 
 
