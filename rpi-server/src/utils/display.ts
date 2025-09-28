@@ -37,7 +37,7 @@ export interface StatusResponse {
  */
 export async function showDisplayMessage(
   options: DisplayOptions,
-  apiUrl: string = 'http://172.30.142.11:5000'
+  apiUrl: string = 'http://192.168.1.117:5000'
 ): Promise<DisplayResponse> {
   const { text, emotion = 'normal', duration = 10 } = options;
 

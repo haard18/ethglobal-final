@@ -59,7 +59,7 @@ def show_display_message(
                 api_url = pluto_config.display_url
         except ImportError:
             if api_url is None:
-                api_url = "http://172.30.142.11:5000"
+                api_url = "http://192.168.1.117:5000"
         
         # Handle None options (for clearing display)
         if options is None:

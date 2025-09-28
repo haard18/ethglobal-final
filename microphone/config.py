@@ -19,9 +19,9 @@ except ImportError:
 class MicrophoneConfig:
     """Configuration for microphone service"""
     # Service endpoints
-    rpi_server_host: str = "172.30.142.11"
+    rpi_server_host: str = "192.168.1.117"
     rpi_server_port: int = 3000
-    display_host: str = "172.30.142.11"
+    display_host: str = "192.168.1.117"
     display_port: int = 5000
     
     # Audio settings
